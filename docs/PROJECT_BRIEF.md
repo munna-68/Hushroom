@@ -26,6 +26,22 @@ The room inventory, lighting model, UI layout, and status language in this brief
 transcribed from those images. Where the brief and an image disagree, the image wins on
 appearance and this brief wins on behaviour.
 
+**Read the concept art's glass panels as a generation artefact, not a target.** The real
+interface uses opaque surfaces with no `backdrop-filter` (§13.1).
+
+### 0.1 Technique reference
+
+`nagomi` (github.com/msk1039/nagomi) is the technique reference for the scene architecture:
+procedural animation, the `480×270` fixed logical space, `setPixelRatio(1)`, multi-pass
+compositing through intermediate render targets, the fixed-timestep loop with a drift-free
+frame limiter, and the `defaults ⊕ weather ⊕ edits` settings model.
+
+⚠️ **It is PolyForm Noncommercial 1.0.0, © 2026 Mayank Kadam. Reimplement every technique.
+Never copy its source** into this project — a paid tier is planned, and copying would violate
+that licence permanently. Read it to understand *how*, then write your own code.
+
+See §21.7.
+
 ---
 
 ## 1. What this product is
@@ -70,12 +86,13 @@ stranger feel observed or exposed, is out.
 - Multiple maps beyond the library. **The all-night café is map 2, not v1.** See §12.1.
 - Music. **Deferred to the paid tier.** See §11.4.
 - Avatar facial features. See §9.3.
-- Server-side moderation, kick, ban. See §8.3.
+- Server-side moderation, kick, ban. See §20.3 and §3.3.
 
 ### 2.3 Scope risk — documented fallback order
 
-This is a large v1 whose critical path is **hand-authored pixel art**, not code. The art
-volume is the schedule risk. If it runs long, shed in this order, and only in this order:
+This is a large v1. Its critical path is **the parts library** (§21) plus the avatar
+identity layers — the procedural motion work does not scale with avatar count. If it runs
+long, shed in this order, and only in this order:
 
 1. Music channel (already deferred)
 2. 7-day and 30-day analytics charts (reduce to "today" only)
@@ -305,11 +322,42 @@ Shared set per body base:
 frequency, and animation phase. These make people read as individuals without a single extra
 frame.
 
+**The walk cycle is the one exception, and it is procedural — see §9.6.**
+
 ### 9.5 Entrance animation
 
 On first join, and on return after an absence: the avatar **walks in through the door and
 sits at a free desk**, then opens its laptop and begins. Any free desk, no preference.
 Suppress entirely under reduced motion.
+
+### 9.6 Motion is procedural, identity is authored
+
+The split is at **motion**, not at identity.
+
+**Authored** — everything that carries who someone is, drawn once per avatar and never
+redrawn: head shape, hair, top, bottom, accessory. These are static pixel layers composited
+at the seat.
+
+**Procedural** — everything that moves between places. Walking is a steering system, not a
+sprite:
+
+- Each avatar holds a **chain of points** from hip to foot. The leading point follows the
+  path; each point behind follows the one ahead at a fixed distance, with **looser
+  follow-through further back** so turns bend naturally.
+- A **gait wave** travels down the chain, small at the hip and larger at the foot, phase-locked
+  to distance travelled rather than to time so the feet never skate.
+- Paths come from **weighted steering intents** — follow the waypoint, avoid furniture,
+  avoid other avatars, stay inside the room — combined and interpolated smoothly. Gradual
+  change of speed and heading is mandatory; assigning them instantly makes a figure slide.
+- **Seeded per avatar from the device UUID**, so personality and gait are stable across
+  sessions and a returning regular is recognisably the same person.
+
+This removes the three most expensive animations from the art budget entirely —
+`enter_walk`, `walk_break`, and `return_to_seat` — because they are *transitions*, and
+transitions are what a steering system is for. The seated animations remain authored
+3–4 frame loops that repeat in place and need no directional variants.
+
+**Net art budget: four small seated loops per body base, plus one procedural walker.**
 
 ---
 
@@ -320,10 +368,12 @@ Suppress entirely under reduced motion.
 - **3/4 overhead perspective**, not plan view. Walls have visible height. Bookshelves have
   real shelving depth. A stairwell railing is visible. This is richer and easier than true
   top-down, and it is what the reference art shows.
-- **One master illustration. Two camera framings of that same master** — portrait and
-  landscape. This is not two illustrations, and it must not be built as two.
-- The portrait framing is a **narrower crop of the same master at a larger scale**, so the
-  same room reads well in both.
+- **One parts library, composed per layout** (§21). The room is built in code from authored
+  parts positioned against a seat map, not painted as a single image. Portrait and landscape
+  are two layouts of the same parts — **not two illustrations, and it must never be built as
+  two.**
+- **Design space is `480 × 270`**; the live logical size is derived from the viewport per
+  §17.2. Layout reflows between them.
 
 ### 10.2 Zoom
 
@@ -473,9 +523,9 @@ own ambience, not a room broadcast.
 The all-night café is **map 2**. Two maps doubles the room art, and the room art is the
 critical path.
 
-The map system is designed as **data from day one** — a map is a master image plus a lighting
-config plus a break-destination list plus a seat map. Adding the café is authoring work, not
-re-engineering.
+The map system is designed as **data from day one** — a map is a parts manifest plus a
+lighting config plus a weather preset set plus a break-destination list plus a seat map.
+Adding the café is authoring work, not re-engineering.
 
 The second reference image depicts a **bed, floor cushions, and a wall of trailing plants** —
 that is a dorm, not a library. Treat it as a distinct space and a natural map 3.
@@ -496,7 +546,10 @@ browsers, and it is rejected on both aesthetic and performance grounds.
 - Modern spacing, layout, and interaction. **Not a pure pixel UI** — chunky pixel chrome, not
   a pixel-art skeuomorph.
 
-The glass treatment visible in the reference is explicitly **not** the target.
+The glass treatment visible in the concept art is explicitly **not** the target — it is an
+artefact of image generation, not a design decision. The real reference app uses **opaque
+surfaces with `box-shadow: none` on the element and a soft drop shadow beneath, and contains
+no `backdrop-filter` anywhere.** Opaque panels it is.
 
 ### 13.2 Theme
 
@@ -514,9 +567,11 @@ require a second palette pass over every panel, and a light UI over a dark scene
 - Hide UI toggle — full-bleed scene, chrome fades away
 - Expand / fullscreen
 - Participant count, tapping through to the panel
+- **Frame-rate cap** (native / 60 / 30 / 20) — §17.4
 
 **Mobile portrait:** the reference's control bar **cannot fit 390px.** The mobile set is
-Ambience, Weather, Mute, Hide UI. Expand and the participant count move into the sheet.
+Ambience, Weather, Mute, Hide UI. Expand, participant count, and the frame cap move into the
+sheet.
 
 ### 13.4 Side panel
 
@@ -531,6 +586,29 @@ Two tabs:
 
 Honour the OS setting. Disables entrance walk-ins, the panel transitions, and aggregate-grade
 interpolation. **This is an accessibility requirement, not an option.**
+
+### 13.6 Settings architecture
+
+Settings are **schema-driven**, not hand-built. Every setting is declared once with its
+default, valid range, control kind, and which subsystem an effect touches. The control UI is
+**generated from that schema**, so adding a setting never means hand-writing a slider.
+
+**Precedence is `defaults ⊕ weather ⊕ user edits`**, resolved into a single live object that
+the simulation reads every frame without knowing a settings UI exists.
+
+This is not decoration — it is the exact implementation of §4's three-layer ownership:
+
+- A **weather preset** writes only the fields it owns. Rain sets rain density, grade, shaft
+  opacity. It does not touch the user's ambience volume.
+- A **user edit** persists and overrides the preset for that field **until the user touches
+  that same field again**, at which point the preset's value applies once more. This is
+  precisely how `Room · Rain · Clear` behaves: choosing "Room" hands control back.
+- **Persistence is sparse** — only the user's edits are stored, not a full snapshot. Changing
+  a default later must not be clobbered by an old save.
+- Performance preferences are kept in a **separate store**, deliberately: the frame cap is not
+  undoable, is not affected by weather, and is not cleared by "reset all".
+
+Per-section reset, versioning, and unknown-value rejection on load are all required.
 
 ---
 
@@ -633,83 +711,138 @@ profile detail is a paid-tier feature.
 
 | Layer | Choice |
 |---|---|
-| Framework | **Next.js 15, App Router, TypeScript** |
-| Styling | **Tailwind v4** |
-| Scene | **Canvas 2D** — one `<canvas>` |
-| Hosting | **Vercel** |
+| Build | **Vite 8** |
+| UI | **React 19 + TypeScript** |
+| Styling | **Tailwind v4** via `@tailwindcss/vite` |
+| Scene | **Three.js (WebGL)** — one `<canvas>` |
+| Hosting | **Cloudflare Workers** (static assets, `wrangler.jsonc`) |
 | Backend | **Supabase** — Postgres + Realtime |
 | Realtime transport | **Supabase Realtime Broadcast** |
+| Tests | **Vitest** — simulation math only, never rendering |
 
-**No game engine. No PixiJS. No Phaser.** Ten avatars is nothing for a game engine to earn
-its keep. Canvas 2D gives correct depth compositing — rain behind furniture, glow over
-everything — with zero dependency weight and no WebGL context-loss failures on cheap
-Androids. Revisit only if the scene grows heavy post-processing.
+**A WebGL scene renderer is required, not optional.** The room needs multi-pass compositing
+with intermediate render targets: rain behind furniture, lamp glow over everything, weather
+graded on top of the whole frame. Canvas 2D does that badly or not at all. Three.js gives it
+directly, and at a fixed low logical resolution the cost is negligible.
 
 **React renders the chrome only. It is never in the scene's render loop.**
 
-### 17.2 Canvas and scaling
+### 17.2 Logical resolution — DPR is ignored entirely
 
+The scene renders to a **fixed low logical resolution** and CSS scales it up. This is the
+single most important performance decision in the project.
+
+```js
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: false, alpha: false, powerPreference: "high-performance",
+});
+renderer.setPixelRatio(1);                        // ← DPR has zero effect on cost
+renderer.setSize(logicalWidth, logicalHeight, false);  // false = CSS owns display size
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 ```
-dpr   = Math.min(devicePixelRatio, 2)
-scale = Math.max(1, Math.floor(cssWidth / internalWidth))   // integer only
-canvas.width  = internalWidth  * scale * dpr
-canvas.height = internalHeight * scale * dpr
-canvas.style.width  = (internalWidth  * scale) + 'px'
-canvas.style.height = (internalHeight * scale) + 'px'
-ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-ctx.imageSmoothingEnabled = false
+```css
+image-rendering: pixelated;
+image-rendering: crisp-edges;
 ```
 
-- **Integer scale only.** A non-integer scale produces uneven pixel widths and destroys the
-  aesthetic.
-- **DPR capped at 2.** Never render the scene at native 3× resolution.
-- `imageSmoothingEnabled = false` applies to the **context**, not the canvas. Reset it if a
-  second context is ever created.
-- Re-derive scale on both `resize` and `orientationchange`, releasing old offscreen canvases
-  when you do.
+**`setPixelRatio(1)` is what makes the performance contract in §18 true.** Device pixel
+ratio, screen density, and panel resolution stop affecting render cost entirely — a $300
+phone and a $1400 phone do identical work.
 
-**Render ladder** — choose the largest step that fits the scene area:
+**Logical size per layout:**
 
-| Layout | Ladder |
+| Layout | Logical resolution |
 |---|---|
-| Landscape | `1920×1080` → `960×540` → `480×270` |
-| Portrait | `720×1560` → `360×780` → `240×520` |
+| **Landscape** (desktop, laptop, tablet) | **Fixed `480 × 270`** |
+| **Portrait** (≤ 700px wide **and** portrait orientation) | `width = clamp(round(cssWidth × 0.7), 270, 480)`, `height = round(width × cssHeight / cssWidth)` clamped to ≥ 270 |
 
-- **Room master art: one 1920×1080 image per map per weather state** — two images for the
-  library (clear, rain).
-- **Avatars are never resampled.** They are authored at their natural art-pixel size and
-  blitted at the current integer step, so they stay crisp at every step.
-- At lower steps the room background is nearest-neighbour downsampled. This is acceptable
-  because the composition is designed to survive it. If it does not, author a second
-  lower-detail **room only** — it is one image, and it is cheap relative to the avatars.
+```
+const portrait = window.matchMedia("(max-width: 700px) and (orientation: portrait)").matches;
+if (!portrait) logical = { width: 480, height: 270 };
+else {
+  const w = Math.min(480, Math.max(270, Math.round(cssWidth * 0.7)));
+  logical = { width: w, height: Math.max(270, Math.round((w * cssHeight) / cssWidth)) };
+}
+```
 
-### 17.3 Render architecture
+- **Integer scaling is not achievable on modern phones and is not the goal.** A 390px
+  viewport at 2× is 195 logical pixels, which cannot hold a room. Instead, logical width is
+  **70% of CSS width**, which yields a **constant ~1.43× pixel scale across every phone
+  size** — the pixel size stays stable as the viewport changes, which is what actually
+  preserves the aesthetic. `image-rendering: pixelated` handles the fractional remainder.
+- **Design space is `480 × 270`.** Input coordinates are mapped from the fixed design space
+  into the live logical size, so pointer handling stays correct as the size changes.
+- Recompute on a `ResizeObserver` plus `orientationchange`. On resize, pass the previous
+  dimensions to the simulation so it can scale existing positions rather than respawn.
+- **Release old render targets on resize** rather than leaking them.
 
-1. **Pre-baked room layer** — floor, walls, shelves, static furniture. One `drawImage`.
-   This is the largest win available: it converts hundreds of tile blits into one.
-2. **Pre-baked lighting layer** — lamp glow and light shafts, composited with `'lighter'`.
-3. Rain particles, drawn in depth order relative to furniture.
-4. Avatars, drawn in seat order.
+### 17.3 Render passes
 
-### 17.4 Performance prohibitions
+The frame is composed in **ordered passes through two intermediate `WebGLRenderTarget`s**,
+sized to the live logical resolution. Intermediate targets are what let one layer distort
+another without distorting everything.
+
+| # | Pass | Notes |
+|---|---|---|
+| 1 | **Room shell** | Floor, walls, shelves, stairwell, window. The static base. |
+| 2 | **Shadows** | Desks, chairs, avatars, plants — in correct depth order |
+| 3 | **Room props** | Mugs, books, laptops, backpacks, rugs, cats |
+| 4 | **Avatars** | Seated and standing, in seat order |
+| → | *snapshot to target* | Everything so far is now "under the rain" |
+| 5 | **Weather** | Rain particles, window streaks, running water. Reads the snapshot, writes forward — so rain occludes correctly and nothing above it is distorted |
+| 6 | **Light grade** | Lamp glow pools, sun shafts, global weather grade. Composited additively over the whole frame |
+
+- Every pass writes to a reused target. **Never allocate a target, geometry, or material in
+  the frame loop.**
+- Passes 1–2 are effectively static per weather state; keep them in render targets and
+  redraw only when weather, logical size, or seat assignment changes.
+
+### 17.4 The loop — fixed simulation step, decoupled render
+
+**The simulation always steps at a fixed 60Hz**, independent of display refresh:
+
+```
+accumulator += min((now - previousTime) / 1000, 0.1)
+while (accumulator >= FIXED_STEP) { world.update(FIXED_STEP, t); accumulator -= FIXED_STEP }
+```
+
+This keeps movement, timers, and animation identical whether the display runs at 60, 120, or
+30Hz. Clamp the accumulator at 100ms so a backgrounded tab does not spiral.
+
+**Frame limiting** — the rAF loop keeps running and the limiter decides whether to step:
+
+- Skip the tick if less than `1000 / cap` ms has elapsed, with a **1ms early tolerance**
+  because timestamps jitter.
+- **Advance `lastRender` along the ideal schedule** (`lastRender += steps * interval`), never
+  snapping to `now`, so rounding and jitter never accumulate into drift.
+- If a gap exceeds **250ms** the tab was hidden or the thread stalled — reset rather than
+  fast-forward.
+- `previousTime` advances **only on rendered frames**, so a capped tick still delivers its
+  full real elapsed time to the accumulator.
+
+**User-selectable frame cap:** `native · 60 · 30 · 20`, persisted locally, with **30** as the
+default whenever the tab is hidden or in ambient mode unless the user picked a value
+explicitly. This is how §18's "effects degrade, frame rate never does" is actually
+delivered — the user has the lever.
+
+### 17.5 Performance prohibitions
 
 **These are hard rules for the render loop:**
 
-- **Never use `shadowBlur`.** Chrome forces an offscreen render-target pass; WebKit allocates
-  a temporary `ImageBuffer` per shadowed operation. **Pre-bake every glow into an offscreen
-  canvas and `drawImage` it.** Identical visuals, a fraction of the cost.
-- **Never use `ctx.filter`.** Same family, worse. Pre-bake.
-- **No per-frame allocation.** No `new Array()`, no object literals, no string building in
-  the hot loop. Use typed arrays (`Float32Array` for rain x/y/vx/vy/opacity) and pre-allocated
+- **No per-frame allocation.** Reuse geometry, materials, render targets, and particle
+  buffers. Use typed arrays (`Float32Array`) for rain x/y/vx/vy/opacity and pre-allocated
   pools.
-- **No `getImageData` on large regions.** The per-canvas read limit applies to reads, not
-  just drawing. Pre-bake at load.
-- **One `fillRect` over the frame**, not tiled `clearRect`. If a full opaque room
-  background is blitted, skip the clear entirely.
+- **Fixed instance caps as engine limits, not settings** — koi-style object pools with a hard
+  maximum (e.g. 64 ripples). Exceeding the cap drops the oldest, never grows the pool.
+- **Instanced rendering with dynamic draw ranges** for repeated elements (books, plants,
+  floor tiles). Set `setDrawRange` to the live count rather than rebuilding geometry.
+- **Seeded RNG everywhere.** Deterministic per avatar, so personality is stable across
+  sessions and reproducible in tests.
+- No `getImageData` readbacks per frame.
 - Suspend the `requestAnimationFrame` loop entirely on `visibilitychange`.
-- Free offscreen canvases on resize rather than leaking them.
+- Never `filter` or blur in the loop; all glow is pre-baked geometry.
 
-### 17.5 Realtime
+### 17.6 Realtime
 
 - **Supabase Realtime Broadcast** for status changes, timer updates, and chat.
   **Client-side Broadcast only — it is never written to Postgres.**
@@ -723,7 +856,7 @@ ctx.imageSmoothingEnabled = false
   UUID.
 - **Sessions table** for analytics.
 
-### 17.6 The 7-day pause problem
+### 17.7 The 7-day pause problem
 
 **Supabase free projects pause after 7 days of low database activity and return HTTP 540
 "project paused," with no auto-wake.** Restoration is manual from the dashboard.
@@ -747,15 +880,23 @@ architecture and it must not be skipped.
 **60fps sustained, mid-range and above.** The reference floor is **iPhone 12 / Snapdragon
 778G class.** Not low-end hardware.
 
-**Effects degrade; frame rate never does.** If a device struggles, the order is:
+**The user gets the lever.** A frame-rate cap of `native · 60 · 30 · 20` is exposed in the
+control dock and persisted (§17.4), defaulting to 30 whenever the tab is hidden unless the
+user picked explicitly. Effects degrade; frame rate is never silently taken away.
 
-1. Rain density
-2. Glow quality
-3. Never the frame budget
+**Because the scene renders at a fixed low logical resolution with `setPixelRatio(1)`,
+device resolution, DPR, and screen size have essentially zero effect on render cost.** A
+$300 phone and a $1400 phone do identical work — a 480×270 backing store is 130k pixels
+either way. The only things that can threaten 60fps are effect density and overdraw, so the
+degradation order is:
 
-Because the scene renders at a fixed internal resolution with integer scaling, **device
-resolution, DPR, and screen size have essentially zero effect on render cost.** A $300 phone
-and a $1400 phone do identical work. The only things that can threaten 60fps are effects.
+1. Rain particle count
+2. Glow pool resolution (half-res light targets, halved again before quarter)
+3. Never the simulation step, never the frame budget
+
+**The simulation always steps at 60Hz regardless** (§17.4). Dropping the render cap changes
+how often the scene is drawn, never how fast the world advances — so timers, gait, and
+animation stay identical at 20fps and 120fps.
 
 ### 18.2 Load and weight
 
@@ -769,8 +910,10 @@ and a $1400 phone do identical work. The only things that can threaten 60fps are
 
 ### 18.3 Idle
 
-A two-hour session must not cook the battery. The render loop suspends on
-`visibilitychange`. No work occurs while hidden.
+A two-hour session must not cook the battery. The render loop suspends entirely on
+`visibilitychange` and the frame cap drops to 30 on return unless the user set it explicitly.
+No work occurs while hidden, and `previousTime` is reset on resume so the hidden interval is
+never simulated as a fast-forward.
 
 ---
 
@@ -795,29 +938,32 @@ All layers are free. All are required.
 
 ### 20.1 Premise corrections
 
-- **Cloudflare Tunnel is not used.** It protects origins you host privately. There is no
-  origin to hide — Vercel's edge and Supabase's endpoints are already public and
-  firewalled. Deploying it adds a VPS, a single point of failure, and latency, and still
-  does not protect Realtime.
-- **Cloudflare is not placed in front of Vercel.** Free Cloudflare offers 5 WAF rules and
-  one rate-limit rule that can only match on path, over a 10-second window, with a 10-second
-  penalty. In exchange, Vercel documents that a reverse proxy **breaks** its DDoS mitigation
-  and bot protection, and Cloudflare's proxy interferes with ACME certificate renewal. Free
-  Cloudflare also requires a domain you own; you cannot proxy `*.vercel.app`.
-- **No domain purchase is required for v1.**
+- **Cloudflare Tunnel is not used.** It protects origins you host on a private network.
+  Workers serves static assets from Cloudflare's own edge, and Supabase's endpoints are
+  already public and firewalled. There is no origin to hide.
+- **Cloudflare's WAF is not the primary defence.** Free-plan WAF rate limiting is weak: one
+  rule, path-only, a 10-second window, and a 10-second penalty. Protection comes from
+  Turnstile, the Workers rate-limiting binding, and the application layer instead.
+- **No domain purchase is required.** Turnstile is decoupled from Cloudflare's proxy and
+  works on a `workers.dev` hostname.
 
-### 20.2 Vercel — enable these
+### 20.2 Cloudflare — enable these
 
-- **Bot Protection managed ruleset** → `challenge`. Free, **off by default — turn it on.**
-- **AI bots managed ruleset** → `deny`. Stops crawlers harvesting names and avatars.
-- **One WAF rate limit rule**, keyed on IP + JA4, on the most abusable route. Counters are
-  per-region, so set the number 3–5× tighter than intended.
-- **BotID Basic** → free, invisible, on exactly two routes: **chat send** and **join /
-  identity create**. No checkbox, no puzzle, no login, no keys.
-  - Test from a page in the app. Local development always returns `isBot: false`.
-  - Known limitation: **will not stop Playwright/Puppeteer.** Catching browser automation is
-    Pro-only. Accepted for v1 — the room is ephemeral and names are the only thing worth
-    scraping.
+- **Turnstile in Managed mode** on exactly two routes: **chat send** and **join / identity
+  create**. Free, unlimited, no card. Managed mode challenges only on risk, so the checkbox
+  rarely appears for a real person — this is the closest thing to zero friction that actually
+  stops bots.
+  - Siteverify server-side is **mandatory**. Tokens are **single-use** and **expire after
+    300 seconds** — auto-refresh on expiry, and re-verify safely with an idempotency key
+    after a network failure.
+  - Verify **before** doing any work, and **fail closed** on a bot verdict.
+  - Invisible mode is available if zero interaction is ever needed; it requires referencing
+    Cloudflare's Turnstile Privacy Addendum in the privacy policy.
+- **Workers Rate Limiting binding** for in-process per-IP and per-session limits — cheaper
+  and more precise than the free WAF rule, and it does not consume the WAF budget.
+- **Bot Fight Mode** is left **off**. It cannot be scoped or bypassed, applies to the whole
+  hostname, force-enables JavaScript detections, and may challenge legitimate mobile traffic.
+  Turnstile covers the same ground with per-route targeting.
 
 ### 20.3 Application layer
 
@@ -841,7 +987,8 @@ limiters and AND them.
 
 Supabase's Realtime quotas are **project-wide, not per-client.** A script opening 200
 connections evicts every real user, and bot traffic is a documented trigger for
-`RealtimeDisabledForTenant` — a total outage.
+`RealtimeDisabledForTenant` — a total outage. **The host's protections do not reach Realtime
+at all**; the client connects straight to Supabase. This layer is the one that matters most.
 
 - Set internal client caps **well below** Supabase's ceilings.
 - **Coalesce presence and status updates.** Do not re-announce on every render.
@@ -850,49 +997,87 @@ connections evicts every real user, and bot traffic is a documented trigger for
 
 ### 20.6 The real risks
 
-1. **Vercel Hobby Terms authorise shutting down a deployment** if a malicious attack causes
-   "delays or performance problems." Anti-abuse on Hobby is how the deployment survives.
-2. **Exceeding most Hobby quotas locks the feature for 30 days.** Overage protection is
-   mandatory, not optional.
-3. **Shared free infrastructure is the real tail risk.** Supabase has documented regional
-   network blocks where one abusive project affected every customer on the platform.
-4. **Hobby is non-commercial only.** A free app with no payments, ads, or affiliate links is
-   within "personal, non-commercial use." **If anyone is ever paid to build this — client,
-   employer, or contractor — Hobby becomes non-compliant and requires Pro.**
+1. **The host only protects the HTTP routes**, which are a rounding error. Realtime is the
+   real attack surface and it bypasses Cloudflare entirely.
+2. **Determined browser automation will not be stopped on free tiers.** Catching
+   Playwright-class scrapers is a paid capability. Accepted: the room is ephemeral, names are
+   the only thing worth scraping, and chat is never persisted.
+3. **Shared free infrastructure is the tail risk.** Supabase has documented regional network
+   blocks where one abusive project affected every customer on the platform.
+4. **Cloudflare Workers free is not restricted to personal use** the way Vercel Hobby is, so
+   there is no non-commercial clause to trip when a paid tier arrives. Revisit the whole
+   section if auth and payments are added, since that reintroduces a real server.
 
 ---
 
 ## 21. Art pipeline
 
-### 21.1 The core constraint
+### 21.1 The core constraint, reversed
 
-**Aesthetic quality is the top priority and optimization comes later — but the art volume is
-the schedule.** Density is free at runtime; every art pixel is one someone has to draw by
-hand.
+**The scene is not a painting. It is a parametric parts library composed at the live logical
+resolution.**
 
-### 21.2 What AI can and cannot do here
+The original plan assumed one large authored illustration per map per weather state. That is
+the wrong shape. Because the logical resolution is fluid in portrait (§17.2) and the scene
+must read at 270–480 logical pixels wide, a single fixed-resolution image cannot serve both
+orientations. The room is instead built from **reusable parts**, positioned from a seat map
+against the live viewport, exactly as the pond composes itself from bed, plants, and fish.
 
-- **The room is a static image.** It can be AI-generated at high resolution, then snapped to
-  the locked palette. This is the cheap path.
-- **Avatars cannot.** Frame-to-frame identity consistency is not a capability any
+**Consequence:** one art investment yields every layout, every resolution, and both weather
+states. This removes the largest single risk in the project.
+
+### 21.2 The parts library
+
+Author each element **once**, at its natural pixel size, against the locked palette (§22).
+
+| Group | Parts |
+|---|---|
+| Room shell | Floor plank variants, wall, bookshelf (with individually varied book spines), window, window ledge, stairwell + railing, door, picture frames, pendant lamp |
+| Desks | Desk, chair, desk lamp (off / on / glow pool) |
+| Seating | Bar stool, sofa, floor cushion |
+| Surfaces | Rug variants, coffee table, side table |
+| Desk clutter | Mug, open book, closed book, laptop (closed / open), water bottle, backpack, pencil pot, phone |
+| Greenery | Potted plant variants, trailing plant, book plant, lily |
+| Fixtures | Counter, wall lamp, radiator |
+| Fauna | Ginger cat, black cat — idle, stretch, walk, settle |
+| Avatars | See §9 — head, hair, top, bottom, accessory |
+
+### 21.3 Authored vs. procedural, per element
+
+| Element | Method | Reason |
+|---|---|---|
+| Room shell, furniture, props, plants, cats | **Authored pixel geometry**, instanced | Silhouette and detail are what make the room read as an Oxford library |
+| Room layout, seat assignment, spacing | **Procedural** | Must reflow for portrait vs landscape |
+| Rain, light shafts, water, glow | **Procedural shader** | Density and intensity must animate continuously |
+| Avatar identity (head, hair, top, bottom) | **Authored layers** | This is what carries "this is a person" |
+| Avatar motion | **Procedural** | See §9.4 |
+
+### 21.4 What AI can and cannot do here
+
+- **The room and its parts can be AI-assisted.** Concept generation and palette exploration
+  are genuinely good uses. Snap any AI output to the locked palette before use and do not
+  ship free-tier AI output.
+- **Animation frames cannot.** Frame-to-frame identity consistency is not a capability any
   general-purpose image model has. Prompt-to-spritesheet output has unreliable frame counts,
-  grid alignment, and inter-frame palette consistency. Every serious tool in this space ships
-  a retry loop to compensate.
+  grid alignment, and inter-frame palette consistency. This is precisely why avatar motion
+  is procedural (§9.4) rather than authored.
 - **Layered avatar parts cannot.** Generating a consistent set of hair layers that register
-  pixel-perfectly with each other is *harder* than a consistent walk cycle.
+  pixel-perfectly with each other is *harder* than generating a consistent walk cycle.
 
-**Therefore: AI for concept exploration, hand-authoring for the shipped sprites.**
+**Therefore: AI for concepts and exploration, hand-authoring for every shipped part, and
+procedural generation for everything that moves.**
 
-### 21.3 Workflow
+### 21.5 Workflow
 
 1. Generate concepts for palette, silhouette, and wardrobe. Do not ship free-tier AI output.
 2. Snap to the locked palette; extract **one shared palette across the entire sheet** —
    per-frame quantisation flickers.
-3. Hand-author the shipped frames.
-4. **Derive idle animations by pixel-shifting one drawn frame** — the frames are the same
-   pixels moved, so identity drift is zero.
+3. **Hand-author each part once, at its natural pixel size.**
+4. **Derive idle loops by pixel-shifting one drawn frame** — the frames are the same pixels
+   moved, so identity drift is zero. This is how cats stretch and avatars fidget.
+5. Compose the room in code from the parts library and a seat map.
 
-### 21.4 Licensing
+### 21.6 Licensing
 
 **CC0 only** for any asset used in the app. Kenney is CC0 and safe. **Avoid CC-BY-SA and
 GPL** — ShareAlike forces you to publish derivatives of the art under the same licence, and
@@ -901,6 +1086,18 @@ GPL/CC-BY-SA carry an anti-DRM clause that conflicts with app distribution.
 **itch.io "free" does not mean commercial.** Check each pack's licence individually.
 
 Maintain `CREDITS.md` for art provenance alongside the audio credits (§11.2).
+
+### 21.7 Reference implementation — read it, do not copy it
+
+`nagomi` (github.com/msk1039/nagomi) is the technique reference for this project: procedural
+animation, the `480×270` fixed logical space, `setPixelRatio(1)`, multi-pass compositing
+through intermediate render targets, the fixed-timestep loop with a frame limiter, and the
+settings precedence model in §13.6.
+
+⚠️ **It is licensed PolyForm Noncommercial 1.0.0, © 2026 Mayank Kadam. Reimplement, never
+copy.** Copying the code into a project that may one day take payments — and a paid tier is
+planned — would violate that licence permanently. The architecture, the numbers, and the
+techniques above are all reusable; the source is not.
 
 ---
 
@@ -953,16 +1150,22 @@ Recorded so they are not silently re-litigated.
 | Sync to the user's local time | Rejected outright. |
 | Multiple time-of-day presets in v1 | Would double the lighting art for a feature nobody asked for. |
 | A full day/night cycle | Doubles every lighting state; screenshots become non-deterministic. |
-| Glass / `backdrop-filter` UI | Rejected on aesthetics **and** measured mobile performance. |
+| Glass / `backdrop-filter` UI | Rejected on aesthetics **and** measured mobile performance. The reference app uses opaque surfaces with no backdrop filter at all; the glass in the concept art is an image-generation artefact. |
 | A light theme | Second palette pass over every panel for a cheap-looking result. |
+| Canvas 2D / no WebGL | The room needs multi-pass compositing through intermediate render targets — rain behind furniture, glow over everything. Canvas 2D does that badly or not at all. |
+| PixiJS / Phaser | Ten moving things is not the workload a game engine exists for. Three.js earns its place for its render-target pipeline, not scene complexity. |
+| Next.js | Its only justification was API routes for the paid tier, which is deferred. There is no server need in v1 — Supabase is reached directly from the browser. |
+| A single large room illustration | The logical resolution is fluid in portrait, so one fixed-resolution image cannot serve both orientations. The room is a parts library composed per layout. |
+| Integer pixel scaling | Unachievable on modern phones. Logical width at 70% of CSS width gives a stable ~1.43× pixel scale across every phone size, which is what actually preserves the aesthetic. |
+| Vercel hosting | Workers removes the Hobby shutdown clause and quota-lockout risk and adds a free in-process rate limiter. Free WAF is weak on either host — Turnstile carries the protection. |
 | An avatar face builder | Not legible at ~30px. A builder of meaningless choices. |
-| Per-avatar unique animations | Complexity the project does not need. Two shared sets, varied by timing. |
+| Per-avatar unique animations | Complexity the project does not need. Motion is procedural and seeded, which already varies every avatar. |
 | Free-roam movement | Destroys "where is everyone" legibility. Scripted destinations only. |
 | Persistent chat | Moderation burden and UGC storage, for a study app. Ephemeral only. |
 | Break streaks | Punishes people for one bad day. Wrong thing to attach to a calm app. |
 | Free-text city over the avatar | Visual noise at this scale, and a self-identification risk. |
 | A pre-room onboarding screen | Friction before the reward. Coach marks over the live room instead. |
 | A delayed chat transport | Delays cost the same transport and make the feature worse. Chat is real-time **and free** — client-side Broadcast is never written to Postgres. |
-| PixiJS / a game engine | Ten sprites is not the workload they exist for. |
-| Cloudflare in any form | Makes protection worse, requires a domain, and does not cover Realtime. |
-| A CAPTCHA with user interaction | Turnstile and BotID invisible modes are genuinely zero-friction. |
+| Cloudflare Tunnel / a reverse proxy in front of the host | There is no origin to hide, and it does not reach Realtime. |
+| A CAPTCHA with user interaction | Turnstile Managed mode challenges only on risk, so a real person almost never sees it. |
+| Copying the reference implementation | nagomi is PolyForm Noncommercial. Reimplement the technique; never copy the source into a project that may one day take payments. |
