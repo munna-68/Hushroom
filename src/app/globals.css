@@ -1,0 +1,170 @@
+/*
+ * Study Together — global stylesheet.
+ *
+ * Vanilla CSS only. No CSS framework, no preprocessor, no CSS-in-JS.
+ * All shared values are exposed as custom properties on :root so that
+ * components can reference tokens instead of hard-coding values.
+ */
+
+:root {
+  /* ---- Color -----------------------------------------------------------
+   * Neutral placeholders. The real palette is not decided yet — replace
+   * these wholesale when it is, rather than editing one-off values.
+   */
+  --color-bg: #14110f;
+  --color-surface: #1e1a17;
+  --color-surface-raised: #292421;
+  --color-border: #3b3430;
+  --color-text: #ece7e1;
+  --color-text-muted: #a49b93;
+  --color-accent: #c8912f;
+  --color-on-accent: #14110f;
+  --color-focus: #6fa8dc;
+
+  /* ---- Spacing ---------------------------------------------------------
+   * 4px base scale.
+   */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* ---- Type ------------------------------------------------------------
+   * System font stacks only — no webfont downloads yet.
+   */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.04em;
+
+  /* ---- Layout ----------------------------------------------------------
+   * 100dvh tracks the mobile URL bar; 100vh is the fallback for browsers
+   * that do not support it.
+   */
+  --app-height: 100vh;
+  --content-max-width: 72rem;
+
+  color-scheme: dark;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
+}
+
+/* ---- Reset ------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  height: 100%;
+  /* Honours the device text-size setting in landscape, where iOS otherwise
+   * inflates text. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100%;
+  overflow-x: hidden;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-base);
+  font-weight: var(--font-weight-regular);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Stop pull-to-refresh revealing the page behind the app. */
+  overscroll-behavior-y: none;
+}
+
+img,
+svg,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---- App shell -------------------------------------------------------- */
+
+/* Full-height column that hosts every route. Children fill it, so a page
+ * only needs to declare its own layout. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  min-height: var(--app-height);
+  overflow-x: hidden;
+}
+
+/* ---- Page ------------------------------------------------------------- */
+
+.page {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  padding: var(--space-4);
+  overflow-x: hidden;
+}
+
+/* ---- Accessibility ---------------------------------------------------- */
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
