@@ -207,8 +207,8 @@ function buildShell(): THREE.BufferGeometry {
 
   // Stairwell: floor edge, dark teal walls going down.
   const D = 3.6;
-  b.add(new THREE.BoxGeometry(0.3, 0.32, FLOOR_Z1 - WELL.z), '#7a4a2b', { p: [WELL.x - 0.15, -0.16, (FLOOR_Z1 + WELL.z) / 2] });
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, 0.32, 0.3), '#7a4a2b', { p: [(FLOOR_X1 + WELL.x) / 2, -0.16, WELL.z - 0.15] });
+  b.add(new THREE.BoxGeometry(0.3, 0.29, FLOOR_Z1 - WELL.z), '#7a4a2b', { p: [WELL.x - 0.15, -0.175, (FLOOR_Z1 + WELL.z) / 2] });
+  b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, 0.29, 0.3), '#7a4a2b', { p: [(FLOOR_X1 + WELL.x) / 2, -0.175, WELL.z - 0.15] });
   b.add(new THREE.BoxGeometry(0.1, D, FLOOR_Z1 - WELL.z), '#1f3a3a', { p: [WELL.x - 0.05, -0.32 - D / 2, (FLOOR_Z1 + WELL.z) / 2] });
   b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, D, 0.1), '#21403f', { p: [(FLOOR_X1 + WELL.x) / 2, -0.32 - D / 2, WELL.z - 0.05] });
   b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, 0.1, FLOOR_Z1 - WELL.z), '#14201f', { p: [(FLOOR_X1 + WELL.x) / 2, -0.32 - D, (FLOOR_Z1 + WELL.z) / 2] });
