@@ -3,6 +3,30 @@
 import * as THREE from 'three';
 import { NAV_EDGES, NAV_NODES } from './hall';
 
+// Table obstacle clearance bounds: table is [-2.8, 2.8] in x, [-0.68, 0.68] in z
+const TABLE_X0 = -2.85, TABLE_X1 = 2.85, TABLE_Z0 = -0.75, TABLE_Z1 = 0.75;
+
+/** Checks if a straight-line segment between two points intersects the table rectangle. */
+export function segmentHitsTable(x1: number, z1: number, x2: number, z2: number): boolean {
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+  if (maxX < TABLE_X0 || minX > TABLE_X1 || maxZ < TABLE_Z0 || minZ > TABLE_Z1) return false;
+  const dx = x2 - x1, dz = z2 - z1;
+  const p = [-dx, dx, -dz, dz];
+  const q = [x1 - TABLE_X0, TABLE_X1 - x1, z1 - TABLE_Z0, TABLE_Z1 - z1];
+  let u1 = 0, u2 = 1;
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return false;
+    } else {
+      const t = q[i] / p[i];
+      if (p[i] < 0) { if (t > u1) u1 = t; }
+      else { if (t < u2) u2 = t; }
+    }
+  }
+  return u1 <= u2;
+}
+
 export class Nav {
   readonly names: string[];
   readonly pos: THREE.Vector2[];
@@ -59,16 +83,23 @@ export class Nav {
     const t = this.idx.get(to)!;
     let best = -1, bestCost = Infinity;
     for (let i = 0; i < this.n; i++) {
+      if (segmentHitsTable(x, z, this.pos[i].x, this.pos[i].y)) continue;
       const c = Math.hypot(this.pos[i].x - x, this.pos[i].y - z) * 1.15 + this.dist[i * this.n + t];
       if (c < bestCost) { bestCost = c; best = i; }
     }
+    if (best === -1) {
+      for (let i = 0; i < this.n; i++) {
+        const c = Math.hypot(this.pos[i].x - x, this.pos[i].y - z) * 1.15 + this.dist[i * this.n + t];
+        if (c < bestCost) { bestCost = c; best = i; }
+      }
+    }
     out.length = 0;
     for (const nm of this.route(this.names[best], to)) out.push(this.node(nm).clone());
-    // Skip a first node that lies behind us relative to the second.
+    // Skip a first node that lies behind us relative to the second, provided the direct shortcut doesn't hit the table.
     if (out.length >= 2) {
       const a = out[0], b = out[1];
       const ab = b.clone().sub(a), ap = new THREE.Vector2(x - a.x, z - a.y);
-      if (ab.dot(ap) > 0 && ap.length() < ab.length()) out.shift();
+      if (ab.dot(ap) > 0 && ap.length() < ab.length() && !segmentHitsTable(x, z, b.x, b.y)) out.shift();
     }
     return out;
   }

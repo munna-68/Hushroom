@@ -130,7 +130,8 @@ export const NAV_NODES: Record<string, [number, number]> = {
   b0: [-2.76, -AISLE_Z], b1: [-1.38, -AISLE_Z], b2: [0, -AISLE_Z], b3: [1.38, -AISLE_Z], b4: [2.76, -AISLE_Z], be: [3.22, -AISLE_Z],
   f0: [-2.76, AISLE_Z], f1: [-1.38, AISLE_Z], f2: [0, AISLE_Z], f3: [1.38, AISLE_Z], f4: [2.76, AISLE_Z], fe: [3.2, AISLE_Z],
   e0: [3.2, 0],
-  bw: [-3.55, -AISLE_Z], c0: [-3.55, -0.9], wn0: [-3.55, STOOLS[0][1]], wn1: [-3.55, STOOLS[1][1]], wn2: [-3.55, STOOLS[2][1]],
+  bw: [-3.55, -AISLE_Z], w0: [-3.55, 0], fw: [-3.55, AISLE_Z],
+  c0: [-3.55, -0.9], wn0: [-3.55, STOOLS[0][1]], wn1: [-3.55, STOOLS[1][1]], wn2: [-3.55, STOOLS[2][1]],
   shA: [-3.75, -3.43], shB: [-3.75, -2.6],
   s0: [-1.35, 2.75], s1: [-1.35, 4.15], sB: [-2.2, 4.15], sA: [-3.9, 4.15],
   dmid: [2.3, -3.4], din: [DOOR.x, -4.6], dout: [DOOR.x, -6.1],
@@ -138,8 +139,8 @@ export const NAV_NODES: Record<string, [number, number]> = {
 
 export const NAV_EDGES: [string, string][] = [
   ['b0', 'b1'], ['b1', 'b2'], ['b2', 'b3'], ['b3', 'b4'], ['b4', 'be'], ['be', 'e0'], ['e0', 'fe'], ['fe', 'f4'],
-  ['f4', 'f3'], ['f3', 'f2'], ['f2', 'f1'], ['f1', 'f0'], ['f0', 'wn2'],
-  ['bw', 'b0'], ['bw', 'c0'], ['c0', 'wn0'], ['wn0', 'wn1'], ['wn1', 'wn2'],
+  ['f4', 'f3'], ['f3', 'f2'], ['f2', 'f1'], ['f1', 'f0'], ['f0', 'fw'], ['fw', 'w0'], ['w0', 'bw'], ['bw', 'b0'],
+  ['bw', 'c0'], ['c0', 'wn0'], ['wn0', 'wn1'], ['wn1', 'wn2'], ['wn2', 'fw'],
   ['bw', 'shB'], ['shB', 'shA'], ['b0', 'shB'],
   ['f1', 's0'], ['f0', 's0'], ['s0', 's1'], ['s1', 'sB'], ['sB', 'sA'],
   ['b3', 'dmid'], ['b4', 'dmid'], ['b2', 'dmid'], ['dmid', 'din'], ['din', 'dout'],

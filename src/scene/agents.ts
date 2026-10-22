@@ -342,30 +342,56 @@ class Agent {
   private planForGoal(now: number) {
     const nav = this.ctx.nav;
     const P = this.path;
-    if (this.goal === 'seat') {
-      const node = this.aisleNode(this.side);
-      nav.pathFrom(this.pos.x, this.pos.y, node, P);
-      P.push(this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2()), this.seatToWorld(0, STAND_Z, new THREE.Vector2()));
-      this.arrive = 'seat';
-      this.faceEnd = this.seat.anchor.rotation.y;
-    } else if (this.goal === 'break') {
-      if (!this.spot) this.pickSpot();
-      const sp = this.spot!;
-      nav.pathFrom(this.pos.x, this.pos.y, sp.node, P);
-      if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
-      this.arrive = 'dest';
-      this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
-    } else {
-      nav.pathFrom(this.pos.x, this.pos.y, 'dout', P);
-      this.arrive = 'door';
-      this.faceEnd = null;
-    }
-    // Leaving the seat: step out through the side gap first.
-    if (this.mode === 'chair') {
+    const isChair = this.mode === 'chair';
+
+    if (isChair) {
       const gap = this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2());
       const aisle = this.seatToWorld(this.side * GAP_X, AISLE_L, new THREE.Vector2());
-      if (P.length && P[0].distanceTo(aisle) < 0.05) P.shift();
+      let tgt: string;
+      if (this.goal === 'seat') {
+        tgt = this.aisleNode(this.side);
+      } else if (this.goal === 'break') {
+        if (!this.spot) this.pickSpot();
+        tgt = this.spot!.node;
+      } else {
+        tgt = 'dout';
+      }
+      nav.pathFrom(aisle.x, aisle.y, tgt, P);
+      if (P.length && P[0].distanceTo(aisle) < 0.25) P.shift();
       P.unshift(gap, aisle);
+
+      if (this.goal === 'seat') {
+        P.push(gap, this.seatToWorld(0, STAND_Z, new THREE.Vector2()));
+        this.arrive = 'seat';
+        this.faceEnd = this.seat.anchor.rotation.y;
+      } else if (this.goal === 'break') {
+        const sp = this.spot!;
+        if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
+        this.arrive = 'dest';
+        this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
+      } else {
+        this.arrive = 'door';
+        this.faceEnd = null;
+      }
+    } else {
+      if (this.goal === 'seat') {
+        const node = this.aisleNode(this.side);
+        nav.pathFrom(this.pos.x, this.pos.y, node, P);
+        P.push(this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2()), this.seatToWorld(0, STAND_Z, new THREE.Vector2()));
+        this.arrive = 'seat';
+        this.faceEnd = this.seat.anchor.rotation.y;
+      } else if (this.goal === 'break') {
+        if (!this.spot) this.pickSpot();
+        const sp = this.spot!;
+        nav.pathFrom(this.pos.x, this.pos.y, sp.node, P);
+        if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
+        this.arrive = 'dest';
+        this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
+      } else {
+        nav.pathFrom(this.pos.x, this.pos.y, 'dout', P);
+        this.arrive = 'door';
+        this.faceEnd = null;
+      }
     }
     this.pi = 0;
     this.mode = 'walk';
