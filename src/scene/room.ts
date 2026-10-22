@@ -50,6 +50,9 @@ export interface RoomBuild {
   door: THREE.Group;
   /** Dynamic floor shadows: index → [x, z, radius, strength]; the scene fills these. */
   blobs: THREE.InstancedMesh;
+  /** Shelf books (instanced) and the per-slot pools for books carried, read open, left on the table. */
+  books: THREE.InstancedMesh;
+  held: { closed: THREE.InstancedMesh; covers: THREE.InstancedMesh; pages: THREE.InstancedMesh; table: THREE.InstancedMesh };
   update(t: number, dt: number, atmo: Atmo): void;
   setQuality(s: TierSettings): void;
   /** Pixels per world unit at distance 1 (point sprite sizing). */
@@ -152,9 +155,9 @@ function buildShell(): THREE.BufferGeometry {
     b.add(new THREE.BoxGeometry(t, 0.004, d), '#c9a457', { p: [-w / 2, 0.027, 0] });
   }
   // Round rug under the coffee table: teal ring around cream.
-  b.add(cyl(1.22, 1.22, 0.02, 48), '#2f6d6a', { p: [COFFEE.x, 0.01, COFFEE.z + 0.35] });
-  b.add(cyl(1.1, 1.1, 0.024, 48), '#e6d6ba', { p: [COFFEE.x, 0.012, COFFEE.z + 0.35] });
-  b.add(new THREE.TorusGeometry(0.98, 0.012, 3, 48), '#cdb994', { p: [COFFEE.x, 0.025, COFFEE.z + 0.35], r: [Math.PI / 2, 0, 0] });
+  b.add(cyl(1.22, 1.22, 0.02, 48), '#2f6d6a', { p: [COFFEE.x, 0.01, COFFEE.z - 0.45] });
+  b.add(cyl(1.1, 1.1, 0.024, 48), '#e6d6ba', { p: [COFFEE.x, 0.012, COFFEE.z - 0.45] });
+  b.add(new THREE.TorusGeometry(0.98, 0.012, 3, 48), '#cdb994', { p: [COFFEE.x, 0.025, COFFEE.z - 0.45], r: [Math.PI / 2, 0, 0] });
 
   const T = 0.3;
   // Left wall (window wall): cream plaster with the window cut out. Shape x = −world z.
@@ -575,6 +578,34 @@ export function buildRoom(): RoomBuild {
     });
   }
 
+  // Books in hands and borrowed books on the table: per-slot instances, hidden by a zero scale.
+  const closedGeo = new EnvBuilder()
+    .add(roundedBox(0.18, 0.25, 0.042, 0.01, 1), '#ffffff', { p: [0, 0, 0] })
+    .add(new THREE.BoxGeometry(0.165, 0.235, 0.044), '#f2ead8', { p: [0.006, 0, 0] })
+    .build();
+  const coverGeo = new EnvBuilder();
+  const pageGeo = new EnvBuilder();
+  for (const sd of [-1, 1]) {
+    // Each half hinges at the spine (local y axis) and opens 22° toward the reader (+z).
+    const a = sd * 0.38;
+    const c = Math.cos(a), sn = Math.sin(a);
+    coverGeo.add(roundedBox(0.17, 0.25, 0.012, 0.004, 1), '#ffffff', { p: [sd * 0.085 * c, 0, 0.085 * Math.abs(sn) - 0.006], r: [0, -a, 0] });
+    pageGeo.add(roundedBox(0.16, 0.235, 0.022, 0.004, 1), '#f6eedc', { p: [sd * 0.083 * c, 0, 0.083 * Math.abs(sn) + 0.012], r: [0, -a, 0] });
+    for (let l = 0; l < 6; l++) pageGeo.add(new THREE.BoxGeometry(0.1, 0.006, 0.002), '#bfb39a', { p: [sd * 0.08 * c, 0.08 - l * 0.032, 0.08 * Math.abs(sn) + 0.024], r: [0, -a, 0] });
+  }
+  const pools = { closed: closedGeo, covers: coverGeo.build(), pages: pageGeo.build(), table: closedGeo.clone() };
+  const zeroM = new THREE.Matrix4().makeScale(0, 0, 0);
+  const pool = (g: THREE.BufferGeometry) => {
+    const m = new THREE.InstancedMesh(g, propMat, MAX_SLOTS);
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < MAX_SLOTS; i++) { m.setMatrixAt(i, zeroM); m.setColorAt(i, new THREE.Color('#ffffff')); }
+    m.frustumCulled = false;
+    m.castShadow = true;
+    group.add(m);
+    return m;
+  };
+  const held = { closed: pool(pools.closed), covers: pool(pools.covers), pages: pool(pools.pages), table: pool(pools.table) };
+
   // Glow sprites for the lamps and the pendant (one draw).
   const glowN = MAX_SLOTS + 1;
   const gPos = new Float32Array(glowN * 3), gSize = new Float32Array(glowN), gAmt = new Float32Array(glowN), gCol = new Float32Array(glowN * 3);
@@ -666,7 +697,7 @@ export function buildRoom(): RoomBuild {
   const smoothLevel = (x: number) => x * x * (3 - 2 * x);
 
   return {
-    group, seats, window: win, door, blobs,
+    group, seats, window: win, door, blobs, books, held,
     update(t, dt, atmo) {
       stUniforms.stTime.value = t;
       // Lamps: fade toward their target, tiny flicker, feed the shader rig.

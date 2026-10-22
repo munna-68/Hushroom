@@ -90,32 +90,57 @@ export const KITS: SeatKit[] = [
 /** Lamp spot in seat space (character faces +z): ahead and to the reader's right. */
 export const LAMP_AT = { x: -0.46, z: 0.8 };
 
-// ---- break destinations ----------------------------------------------------
+// ---- break destinations and the walk graph -----------------------------------------
 
 export type DestKind = 'shelf' | 'window' | 'sofa' | 'stretch';
 
+/** Aisles behind each row of chairs, clear of chairs pushed back. */
+export const AISLE_Z = 2.22;
+
 export interface Spot {
   kind: DestKind;
-  /** Where the person stands (or sits) and the direction they face (radians, 0 = +z). */
+  id: string;
+  /** Where the person ends up and the way they face (radians, 0 = +z). */
   x: number; z: number; face: number;
-  /** Waypoint node the spot is reached from. */
+  /** Walk-graph node the spot is reached from. */
   node: string;
-  /** Extra data for the pose (stool index, sofa end). */
-  k?: number;
+  /** Stool index, sofa cushion, shelf bay. */
+  k: number;
 }
 
-export const SPOTS: Spot[] = [
-  { kind: 'shelf', x: -4.62, z: -2.95, face: -Math.PI / 2, node: 'shelfA', k: 0 },
-  { kind: 'shelf', x: -4.62, z: -1.55, face: -Math.PI / 2, node: 'shelfB', k: 2 },
-  { kind: 'window', x: -4.95, z: 0.85, face: -Math.PI / 2, node: 'winA', k: 0 },
-  { kind: 'window', x: -4.95, z: 2.55, face: -Math.PI / 2, node: 'winC', k: 2 },
-  { kind: 'sofa', x: -4.45, z: 3.55, face: Math.PI, node: 'sofaA', k: 0 },
-  { kind: 'sofa', x: -3.35, z: 3.55, face: Math.PI, node: 'sofaB', k: 1 },
-];
-
-/** Stool positions along the window counter (x, z). */
+/** Stool positions along the window counter (x, z); the stool top is at 0.56. */
 export const STOOLS: [number, number][] = [[-4.16, 0.2], [-4.16, 1.1], [-4.16, 2.0]];
+export const STOOL_TOP = 0.56;
 
 /** Sofa runs along x with its back toward the table (−z), facing the camera side. */
-export const SOFA = { x: -3.05, z: 3.3, len: 2.7, seat: 0.33 };
-export const COFFEE = { x: -2.2, z: 4.45, r: 0.5 };
+export const SOFA = { x: -3.05, z: 3.3, len: 2.7, seat: 0.43 };
+export const COFFEE = { x: -2.45, z: 5.0, r: 0.5 };
+
+export const SPOTS: Spot[] = [
+  { kind: 'shelf', id: 'shelfA', x: -4.1, z: -3.43, face: -Math.PI / 2, node: 'shA', k: 1 },
+  { kind: 'shelf', id: 'shelfB', x: -4.1, z: -2.38, face: -Math.PI / 2, node: 'shB', k: 2 },
+  { kind: 'window', id: 'win0', x: STOOLS[0][0], z: STOOLS[0][1], face: -Math.PI / 2, node: 'wn0', k: 0 },
+  { kind: 'window', id: 'win2', x: STOOLS[2][0], z: STOOLS[2][1], face: -Math.PI / 2, node: 'wn2', k: 2 },
+  { kind: 'sofa', id: 'sofaA', x: -3.9, z: SOFA.z, face: 0, node: 'sA', k: 0 },
+  { kind: 'sofa', id: 'sofaB', x: -2.2, z: SOFA.z, face: 0, node: 'sB', k: 1 },
+];
+
+/** Walk graph: nodes (x, z) and the edges between them. Paths stay clear of furniture. */
+export const NAV_NODES: Record<string, [number, number]> = {
+  b0: [-2.76, -AISLE_Z], b1: [-1.38, -AISLE_Z], b2: [0, -AISLE_Z], b3: [1.38, -AISLE_Z], b4: [2.76, -AISLE_Z], be: [3.22, -AISLE_Z],
+  f0: [-2.76, AISLE_Z], f1: [-1.38, AISLE_Z], f2: [0, AISLE_Z], f3: [1.38, AISLE_Z], f4: [2.76, AISLE_Z], fe: [3.2, AISLE_Z],
+  e0: [3.2, 0],
+  bw: [-3.55, -AISLE_Z], c0: [-3.55, -0.9], wn0: [-3.55, STOOLS[0][1]], wn1: [-3.55, STOOLS[1][1]], wn2: [-3.55, STOOLS[2][1]],
+  shA: [-3.75, -3.43], shB: [-3.75, -2.6],
+  s0: [-1.35, 2.75], s1: [-1.35, 4.15], sB: [-2.2, 4.15], sA: [-3.9, 4.15],
+  dmid: [2.3, -3.4], din: [DOOR.x, -4.6], dout: [DOOR.x, -6.1],
+};
+
+export const NAV_EDGES: [string, string][] = [
+  ['b0', 'b1'], ['b1', 'b2'], ['b2', 'b3'], ['b3', 'b4'], ['b4', 'be'], ['be', 'e0'], ['e0', 'fe'], ['fe', 'f4'],
+  ['f4', 'f3'], ['f3', 'f2'], ['f2', 'f1'], ['f1', 'f0'], ['f0', 'wn2'],
+  ['bw', 'b0'], ['bw', 'c0'], ['c0', 'wn0'], ['wn0', 'wn1'], ['wn1', 'wn2'],
+  ['bw', 'shB'], ['shB', 'shA'], ['b0', 'shB'],
+  ['f1', 's0'], ['f0', 's0'], ['s0', 's1'], ['s1', 'sB'], ['sB', 'sA'],
+  ['b3', 'dmid'], ['b4', 'dmid'], ['b2', 'dmid'], ['dmid', 'din'], ['din', 'dout'],
+];
