@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { V3 } from './toon';
 
-export interface EnvXf { p?: V3; r?: V3; s?: number | V3 }
+export interface EnvXf { p?: V3; r?: V3; q?: THREE.Quaternion; s?: number | V3 }
 export interface EnvPart {
   /** Sway weight for foliage (0 = rigid). */
   sway?: number;
@@ -59,11 +59,19 @@ export class EnvBuilder {
       const aux = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { aux[i * 3] = o.sway ?? 0; aux[i * 3 + 1] = o.emit !== undefined ? o.emit + 1 : 0; aux[i * 3 + 2] = o.glow ?? 0; }
       g.setAttribute('aux', new THREE.BufferAttribute(aux, 3));
-    } else if (!g.attributes.aux) {
-      g.setAttribute('aux', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    } else {
+      if (!g.attributes.aux) {
+        const aux = new Float32Array(n * 3);
+        if (o.sway) for (let i = 0; i < n; i++) aux[i * 3] = o.sway;
+        g.setAttribute('aux', new THREE.BufferAttribute(aux, 3));
+      } else if (o.sway) {
+        const aux = g.attributes.aux as THREE.BufferAttribute;
+        for (let i = 0; i < n; i++) aux.setX(i, aux.getX(i) + o.sway);
+      }
     }
     _p.set(...(xf.p ?? [0, 0, 0]));
-    _q.setFromEuler(_e.set(...(xf.r ?? [0, 0, 0])));
+    if (xf.q) _q.copy(xf.q);
+    else _q.setFromEuler(_e.set(...(xf.r ?? [0, 0, 0])));
     const s = xf.s ?? 1;
     if (typeof s === 'number') _s.setScalar(s); else _s.set(...s);
     g.applyMatrix4(_m.compose(_p, _q, _s));

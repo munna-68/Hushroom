@@ -62,45 +62,712 @@ export interface RoomBuild {
 
 // ---- small helpers --------------------------------------------------------------
 
-const _q = new THREE.Quaternion();
-const _e = new THREE.Euler();
-const _Z = new THREE.Vector3(0, 0, 1);
-/** Euler that turns local +z toward dir. */
-function aim(dir: THREE.Vector3, roll = 0): V3 {
-  _q.setFromUnitVectors(_Z, dir.clone().normalize());
-  if (roll) _q.multiply(new THREE.Quaternion().setFromAxisAngle(_Z, roll));
-  _e.setFromQuaternion(_q, 'XYZ');
-  return [_e.x, _e.y, _e.z];
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
-const lathe = (pts: [number, number][], seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
 
-interface PlantOpts { pot: string; potR: number; potH: number; leaves: number; height: number; spread: number; leaf: number; y0?: number; greens?: string[]; seed: number; droop?: number }
+function createPotGeometry(potType: 'terracotta' | 'ceramic' | 'fluted', potRadius: number, potHeight: number) {
+  const radialSegments = 28;
+  const profilePoints: THREE.Vector2[] = [];
+  const rTop = potRadius;
+  const h = potHeight;
+  const soilRecess = Math.max(0.02, h * 0.16);
+  const wallThickness = Math.max(0.012, rTop * 0.095);
+
+  if (potType === 'ceramic') {
+    const rBase = rTop * 0.72;
+    const rBelly = rTop * 1.04;
+    const lipThickness = wallThickness * 1.15;
+
+    profilePoints.push(new THREE.Vector2(0, 0.005));
+    profilePoints.push(new THREE.Vector2(rBase * 0.88, 0.005));
+    profilePoints.push(new THREE.Vector2(rBase * 0.92, 0.0));
+    profilePoints.push(new THREE.Vector2(rBase, 0.0));
+    profilePoints.push(new THREE.Vector2(rBase * 1.01, h * 0.05));
+
+    const wallSteps = 12;
+    for (let i = 1; i <= wallSteps; i++) {
+      const t = i / wallSteps;
+      const y = h * (0.05 + t * 0.89);
+      const curveR = THREE.MathUtils.lerp(rBase, rTop, Math.pow(t, 0.7))
+                   + Math.sin(t * Math.PI) * (rBelly - rTop) * 0.85;
+      profilePoints.push(new THREE.Vector2(curveR, y));
+    }
+
+    const lipSteps = 6;
+    const lipCenterR = rTop - lipThickness * 0.45;
+    const lipCenterY = h - lipThickness * 0.45;
+    for (let i = 0; i <= lipSteps; i++) {
+      const ang = (i / lipSteps) * Math.PI;
+      const rx = lipCenterR + Math.cos(ang) * (lipThickness * 0.55);
+      const ry = lipCenterY + Math.sin(ang) * (lipThickness * 0.45);
+      profilePoints.push(new THREE.Vector2(rx, ry));
+    }
+
+    const innerR = rTop - lipThickness;
+    profilePoints.push(new THREE.Vector2(innerR, h - soilRecess * 1.55));
+    profilePoints.push(new THREE.Vector2(0, h - soilRecess * 1.55));
+  } else {
+    const rBase = rTop * (potType === 'fluted' ? 0.74 : 0.68);
+    const rimHeight = Math.max(0.025, h * 0.16);
+    const rimOverhang = Math.max(0.01, rTop * 0.085);
+
+    profilePoints.push(new THREE.Vector2(0, 0));
+    profilePoints.push(new THREE.Vector2(rBase, 0));
+    profilePoints.push(new THREE.Vector2(rBase * 1.01, h * 0.04));
+
+    const bodySteps = 10;
+    const collarBottomY = h - rimHeight;
+    for (let i = 1; i <= bodySteps; i++) {
+      const t = i / bodySteps;
+      const y = THREE.MathUtils.lerp(h * 0.04, collarBottomY, t);
+      const r = THREE.MathUtils.lerp(rBase, rTop * 0.96, t) + Math.sin(t * Math.PI) * (rTop * 0.025);
+      profilePoints.push(new THREE.Vector2(r, y));
+    }
+
+    profilePoints.push(new THREE.Vector2(rTop + rimOverhang * 0.85, collarBottomY + rimHeight * 0.08));
+    profilePoints.push(new THREE.Vector2(rTop + rimOverhang, collarBottomY + rimHeight * 0.22));
+    profilePoints.push(new THREE.Vector2(rTop + rimOverhang * 0.95, h - rimHeight * 0.12));
+    profilePoints.push(new THREE.Vector2(rTop + rimOverhang * 0.65, h));
+    profilePoints.push(new THREE.Vector2(rTop - wallThickness * 0.35, h));
+    profilePoints.push(new THREE.Vector2(rTop - wallThickness * 0.85, h - rimHeight * 0.12));
+
+    profilePoints.push(new THREE.Vector2(rTop - wallThickness * 0.95, h - soilRecess * 1.55));
+    profilePoints.push(new THREE.Vector2(0, h - soilRecess * 1.55));
+  }
+
+  const geometry = new THREE.LatheGeometry(profilePoints, radialSegments);
+  const pos = geometry.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const v = new THREE.Vector3();
+  const fluteCount = 24;
+
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const radiusAtV = Math.hypot(v.x, v.z);
+    const angle = Math.atan2(v.z, v.x);
+
+    if (potType === 'fluted' && radiusAtV > potRadius * 0.55 && v.y > h * 0.05 && v.y < h * 0.82) {
+      const verticalMask = smoothstep(h * 0.05, h * 0.14, v.y) * (1 - smoothstep(h * 0.72, h * 0.82, v.y));
+      const fluteWave = Math.sin(angle * fluteCount) * (potRadius * 0.022) * verticalMask;
+      const scale = (radiusAtV + fluteWave) / Math.max(0.0001, radiusAtV);
+      v.x *= scale;
+      v.z *= scale;
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+
+    const heightFactor = THREE.MathUtils.clamp(v.y / h, 0, 1);
+    let shade = 0.88 + 0.14 * heightFactor;
+    if (v.y < h - 0.01 && radiusAtV < potRadius - wallThickness * 0.4) {
+      shade *= 0.68;
+    }
+    colors[i * 3] = shade;
+    colors[i * 3 + 1] = shade * 0.98;
+    colors[i * 3 + 2] = shade * 0.96;
+  }
+
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+
+  return {
+    geometry,
+    soilY: h - soilRecess,
+    soilRadius: rTop - wallThickness * 0.82,
+  };
+}
+
+function createSaucerGeometry(potRadius: number, potHeight: number) {
+  const rBase = potRadius * 0.78;
+  const sRadius = rBase * 1.16;
+  const sHeight = Math.max(0.012, potHeight * 0.085);
+  const pts = [
+    new THREE.Vector2(0, 0),
+    new THREE.Vector2(sRadius * 0.88, 0),
+    new THREE.Vector2(sRadius, sHeight * 0.75),
+    new THREE.Vector2(sRadius * 0.98, sHeight),
+    new THREE.Vector2(sRadius * 0.90, sHeight),
+    new THREE.Vector2(sRadius * 0.82, sHeight * 0.35),
+    new THREE.Vector2(0, sHeight * 0.35),
+  ];
+  const geom = new THREE.LatheGeometry(pts, 24);
+  geom.computeVertexNormals();
+  return geom;
+}
+
+function createSoilGeometry(soilRadius: number, rand: () => number) {
+  const rings = 8;
+  const segments = 22;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  const baseColor = new THREE.Color('#2e1f18');
+  const edgeColor = new THREE.Color('#1c120d');
+
+  const moundHeight = soilRadius * 0.14;
+  positions.push(0, moundHeight, 0);
+  colors.push(baseColor.r, baseColor.g, baseColor.b);
+
+  const noisePhase1 = rand() * Math.PI * 2;
+  const noisePhase2 = rand() * Math.PI * 2;
+
+  for (let r = 1; r <= rings; r++) {
+    const t = r / rings;
+    const rad = t * soilRadius;
+    const domeY = Math.cos(t * Math.PI * 0.5) * moundHeight;
+
+    for (let s = 0; s < segments; s++) {
+      const theta = (s / segments) * Math.PI * 2;
+      const x = Math.cos(theta) * rad;
+      const z = Math.sin(theta) * rad;
+
+      const bump = (
+        Math.sin(x * 9 + noisePhase1) * Math.cos(z * 9 + noisePhase2) * (soilRadius * 0.04) +
+        (rand() - 0.5) * (soilRadius * 0.03)
+      ) * (1 - t * 0.5);
+
+      positions.push(x, domeY + bump, z);
+
+      const c = baseColor.clone().lerp(edgeColor, Math.pow(t, 1.8));
+      const vJitter = (rand() - 0.5) * 0.04;
+      colors.push(
+        THREE.MathUtils.clamp(c.r + vJitter, 0, 1),
+        THREE.MathUtils.clamp(c.g + vJitter, 0, 1),
+        THREE.MathUtils.clamp(c.b + vJitter, 0, 1)
+      );
+    }
+  }
+
+  for (let s = 0; s < segments; s++) {
+    const next = (s + 1) % segments;
+    indices.push(0, 1 + next, 1 + s);
+  }
+
+  for (let r = 1; r < rings; r++) {
+    const ringStart = 1 + (r - 1) * segments;
+    const nextRingStart = 1 + r * segments;
+    for (let s = 0; s < segments; s++) {
+      const next = (s + 1) % segments;
+      indices.push(ringStart + s, ringStart + next, nextRingStart + next);
+      indices.push(ringStart + s, nextRingStart + next, nextRingStart + s);
+    }
+  }
+
+  const bufferGeom = new THREE.BufferGeometry();
+  bufferGeom.setIndex(indices);
+  bufferGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  bufferGeom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  bufferGeom.computeVertexNormals();
+  return bufferGeom;
+}
+
+function createTaperedTubeGeometry(
+  curve: THREE.CatmullRomCurve3,
+  tubularSegments = 14,
+  radiusStart = 0.012,
+  radiusEnd = 0.005,
+  radialSegments = 6,
+  baseHex = '#3a5f32',
+  tipHex = '#74a958'
+) {
+  const frames = curve.computeFrenetFrames(tubularSegments, false);
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  const vertex = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+
+  const baseTint = new THREE.Color(baseHex);
+  const tipTint = new THREE.Color(tipHex);
+
+  for (let i = 0; i <= tubularSegments; i++) {
+    const u = i / tubularSegments;
+    const point = curve.getPointAt(u);
+    const N = frames.normals[i];
+    const B = frames.binormals[i];
+
+    const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, Math.pow(u, 0.85));
+    const col = baseTint.clone().lerp(tipTint, u);
+
+    for (let j = 0; j <= radialSegments; j++) {
+      const v = (j / radialSegments) * Math.PI * 2;
+      const sin = Math.sin(v);
+      const cos = -Math.cos(v);
+
+      normal.x = cos * N.x + sin * B.x;
+      normal.y = cos * N.y + sin * B.y;
+      normal.z = cos * N.z + sin * B.z;
+      normal.normalize();
+
+      vertex.x = point.x + radius * normal.x;
+      vertex.y = point.y + radius * normal.y;
+      vertex.z = point.z + radius * normal.z;
+
+      positions.push(vertex.x, vertex.y, vertex.z);
+      normals.push(normal.x, normal.y, normal.z);
+      colors.push(col.r, col.g, col.b);
+    }
+  }
+
+  const stride = radialSegments + 1;
+  for (let i = 0; i < tubularSegments; i++) {
+    for (let j = 0; j < radialSegments; j++) {
+      const a = i * stride + j;
+      const b = (i + 1) * stride + j;
+      const c = (i + 1) * stride + (j + 1);
+      const d = i * stride + (j + 1);
+
+      indices.push(a, b, d);
+      indices.push(b, c, d);
+    }
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setIndex(indices);
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return geom;
+}
+
+function createSculptedLeafGeometry({
+  shapeType = 'pilea',
+  length = 0.15,
+  width = 0.12,
+  cupping = 0.2,
+  arch = 0.22,
+  thickness = 0.005,
+  asymmetry = 0.0,
+}: {
+  shapeType?: 'pilea' | 'ficus' | 'heart';
+  length?: number;
+  width?: number;
+  cupping?: number;
+  arch?: number;
+  thickness?: number;
+  asymmetry?: number;
+} = {}) {
+  const segsL = 10;
+  const segsW = 8;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  function evalLeafPoint(u: number, v: number, isTopSurface: boolean) {
+    const absU = Math.abs(u);
+    let profileWidth = 0;
+    let zAlong = v * length;
+
+    if (shapeType === 'pilea') {
+      const baseRound = Math.pow(Math.sin(v * Math.PI), 0.62);
+      const tipTaper = 1.0 - 0.28 * Math.pow(v, 2.2);
+      profileWidth = (width * 0.5) * baseRound * tipTaper;
+      zAlong = (v - 0.16) * length;
+    } else if (shapeType === 'ficus') {
+      const bodyCurve = Math.sin(Math.pow(v, 0.78) * Math.PI);
+      const dripTip = v > 0.82 ? Math.pow(1 - (v - 0.82) / 0.18, 0.55) * 0.15 : 0;
+      profileWidth = (width * 0.5) * (bodyCurve * 0.95 + dripTip);
+      zAlong = v * length;
+    } else {
+      const envelope = Math.pow(Math.sin(v * Math.PI), 0.68) * (1 - 0.35 * Math.pow(v, 1.5));
+      profileWidth = (width * 0.5) * envelope;
+      const basalLobePullback = Math.sin(absU * Math.PI * 0.85) * (1 - smoothstep(0.0, 0.38, v)) * (length * 0.18);
+      zAlong = v * length - basalLobePullback;
+    }
+
+    const asymScale = 1 + u * asymmetry * 0.12;
+    const x = u * profileWidth * asymScale;
+    const archY = (Math.sin(v * Math.PI * 0.82) * 0.45 - Math.pow(v, 2.15) * arch) * length;
+
+    let cupY = 0;
+    if (shapeType === 'pilea') {
+      const radialDist = Math.hypot(u * 0.85, (v - 0.42) * 1.35);
+      cupY = Math.pow(radialDist, 1.7) * cupping * width * 0.55
+           - Math.pow(Math.max(0, radialDist - 0.75), 2) * width * 0.18;
+    } else {
+      const vFold = Math.pow(absU, 1.15) * cupping * width * 0.65;
+      const marginRoll = Math.pow(absU, 3.2) * cupping * width * 0.38;
+      cupY = vFold - marginRoll;
+    }
+
+    const edgeFactor = (1 - Math.pow(absU, 3.5)) * Math.sin(v * Math.PI);
+    const midribUnderside = !isTopSurface ? Math.exp(-absU * 14) * (1 - v * 0.75) * thickness * 1.45 : 0;
+    const halfThick = thickness * 0.5 * (0.25 + 0.75 * edgeFactor);
+    const yOffset = isTopSurface ? halfThick : -(halfThick + midribUnderside);
+
+    return { x, y: archY + cupY + yOffset, z: zAlong, absU };
+  }
+
+  const stride = segsW + 1;
+  const sideVertCount = (segsL + 1) * stride;
+
+  for (let side = 0; side < 2; side++) {
+    const isTop = side === 0;
+    for (let iv = 0; iv <= segsL; iv++) {
+      const v = iv / segsL;
+      for (let iu = 0; iu <= segsW; iu++) {
+        const u = (iu / segsW) * 2 - 1;
+        const pt = evalLeafPoint(u, v, isTop);
+        positions.push(pt.x, pt.y, pt.z);
+
+        const midribGlow = Math.exp(-pt.absU * 11) * (1 - v * 0.5) * 0.16;
+        const pileaSpot = (shapeType === 'pilea' && isTop)
+          ? Math.exp(-(pt.absU * pt.absU * 18 + Math.pow(v - 0.17, 2) * 38)) * 0.25
+          : 0;
+
+        let veinHighlight = 0;
+        if (shapeType !== 'pilea' && isTop) {
+          const veinCoord = (v * 6.5 - pt.absU * 2.2);
+          const veinWave = Math.pow(Math.max(0, Math.cos(veinCoord * Math.PI * 2)), 10);
+          veinHighlight = veinWave * (1 - pt.absU * 0.7) * (1 - Math.exp(-pt.absU * 8)) * 0.06;
+        }
+
+        const baseToTip = 0.86 + 0.18 * v;
+        const edgeShade = 1.0 - Math.pow(pt.absU, 3.0) * 0.08;
+        const undersideLift = isTop ? 1.0 : 1.06;
+
+        colors.push(
+          (baseToTip + midribGlow * 1.15 + pileaSpot * 1.3 + veinHighlight) * edgeShade * undersideLift,
+          (baseToTip + midribGlow * 1.10 + pileaSpot * 1.2 + veinHighlight) * edgeShade * undersideLift,
+          (baseToTip + midribGlow * 0.85 + pileaSpot * 0.95 + veinHighlight * 0.8) * edgeShade * undersideLift
+        );
+      }
+    }
+  }
+
+  for (let iv = 0; iv < segsL; iv++) {
+    for (let iu = 0; iu < segsW; iu++) {
+      const a = iv * stride + iu;
+      const b = (iv + 1) * stride + iu;
+      const c = (iv + 1) * stride + (iu + 1);
+      const d = iv * stride + (iu + 1);
+      indices.push(a, b, d, b, c, d);
+    }
+  }
+
+  const botOffset = sideVertCount;
+  for (let iv = 0; iv < segsL; iv++) {
+    for (let iu = 0; iu < segsW; iu++) {
+      const a = botOffset + iv * stride + iu;
+      const b = botOffset + (iv + 1) * stride + iu;
+      const c = botOffset + (iv + 1) * stride + (iu + 1);
+      const d = botOffset + iv * stride + (iu + 1);
+      indices.push(a, d, b, b, d, c);
+    }
+  }
+
+  for (let iv = 0; iv < segsL; iv++) {
+    const tL1 = iv * stride, tL2 = (iv + 1) * stride;
+    const bL1 = botOffset + tL1, bL2 = botOffset + tL2;
+    indices.push(tL1, bL1, tL2, bL1, bL2, tL2);
+
+    const tR1 = iv * stride + segsW, tR2 = (iv + 1) * stride + segsW;
+    const bR1 = botOffset + tR1, bR2 = botOffset + tR2;
+    indices.push(tR1, tR2, bR1, bR1, tR2, bR2);
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setIndex(indices);
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geom.computeVertexNormals();
+  return geom;
+}
+
+function computeLeafQuat(
+  tangent: THREE.Vector3,
+  radialOutward: THREE.Vector3,
+  droopAmount: number,
+  rand: () => number
+): THREE.Quaternion {
+  const forward = tangent.clone().multiplyScalar(0.55).addScaledVector(radialOutward, 0.65).normalize();
+  forward.y -= droopAmount;
+  forward.normalize();
+
+  const worldUp = new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(worldUp, forward);
+  if (right.lengthSq() < 0.0001) right.set(1, 0, 0);
+  else right.normalize();
+
+  const leafUp = new THREE.Vector3().crossVectors(forward, right).normalize();
+  const twistAngle = (rand() - 0.5) * 0.36;
+  const twistQuat = new THREE.Quaternion().setFromAxisAngle(forward, twistAngle);
+  right.applyQuaternion(twistQuat);
+  leafUp.applyQuaternion(twistQuat);
+
+  const rotMatrix = new THREE.Matrix4().makeBasis(right, leafUp, forward);
+  return new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
+}
+
+export interface PlantOpts {
+  pot?: string;
+  potType?: 'terracotta' | 'ceramic' | 'fluted';
+  style?: 'pilea' | 'tree' | 'bush';
+  potR: number;
+  potH: number;
+  leaves: number;
+  height: number;
+  spread?: number;
+  leaf?: number;
+  y0?: number;
+  greens?: string[];
+  seed: number;
+  droop?: number;
+}
+
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 function plant(b: EnvBuilder, x: number, z: number, o: PlantOpts) {
   const r = rng(o.seed);
   const y0 = o.y0 ?? 0;
-  b.add(lathe([[0, 0], [o.potR * 0.78, 0], [o.potR, o.potH * 0.92], [o.potR * 1.06, o.potH], [o.potR * 0.92, o.potH], [0, o.potH * 0.96]], 18), o.pot, { p: [x, y0, z] }, { ao: 0.25 });
-  b.add(cyl(o.potR * 0.88, o.potR * 0.88, 0.01, 14), '#3a2a20', { p: [x, y0 + o.potH * 0.95, z] });
-  const greens = o.greens ?? ['#4f8f4a', '#3f7a42', '#5f9e55'];
-  const v = new THREE.Vector3();
-  for (let k = 0; k < o.leaves; k++) {
-    const a = k * 2.39996 + r() * 0.4;
-    const f = k / o.leaves;
-    const up = 0.35 + (1 - f) * 0.9 + r() * 0.25 - (o.droop ?? 0);
-    const len = o.height * (0.45 + 0.55 * (1 - f * 0.6)) * (0.8 + r() * 0.3);
-    v.set(Math.cos(a) * Math.cos(up), Math.sin(up), Math.sin(a) * Math.cos(up));
-    const base: V3 = [x + v.x * 0.03, y0 + o.potH, z + v.z * 0.03];
-    const tip: V3 = [base[0] + v.x * len * o.spread, base[1] + v.y * len, base[2] + v.z * len * o.spread];
-    // stem
-    const mid = new THREE.Vector3((base[0] + tip[0]) / 2, (base[1] + tip[1]) / 2, (base[2] + tip[2]) / 2);
-    const sd = new THREE.Vector3(tip[0] - base[0], tip[1] - base[1], tip[2] - base[2]);
-    const sl = sd.length();
-    const so = aim(sd);
-    b.add(cyl(0.008, 0.01, sl, 5), '#4c6b34', { p: mid.toArray() as V3, r: [so[0] + Math.PI / 2, so[1], so[2]] }, { sway: 0.4 * f + 0.2 });
-    // leaf: a flattened ellipsoid pointing outward and drooping
-    const ld = new THREE.Vector3(v.x, v.y * 0.35 - 0.25, v.z).normalize();
-    const lc: V3 = [tip[0] + ld.x * o.leaf * 0.8, tip[1] + ld.y * o.leaf * 0.8, tip[2] + ld.z * o.leaf * 0.8];
-    b.add(sphere(1, 7, 4), greens[k % greens.length], { p: lc, r: aim(ld, r() * 0.6 - 0.3), s: [o.leaf * 0.48, o.leaf * 0.09, o.leaf] }, { sway: 0.6 + 0.6 * (1 - f) });
+
+  const isPale = o.pot ? (o.pot === '#efe8dc' || o.pot.startsWith('#ef') || o.pot.startsWith('#df')) : false;
+  const potType: 'terracotta' | 'ceramic' | 'fluted' =
+    o.potType ?? (isPale ? 'ceramic' : (o.potR > 0.16 && o.leaves >= 16 && o.height < 1.0 ? 'fluted' : 'terracotta'));
+
+  const style: 'pilea' | 'tree' | 'bush' =
+    o.style ?? (potType === 'ceramic' && o.height > 0.8 ? 'tree' : (potType === 'fluted' || o.potR > o.potH * 0.9 ? 'bush' : 'pilea'));
+
+  const potColorHex = o.pot ?? (potType === 'ceramic' ? '#efe8dc' : TERRA);
+
+  let saucerOffset = 0;
+  if (potType === 'terracotta' || potType === 'fluted') {
+    const saucerGeom = createSaucerGeometry(o.potR, o.potH);
+    b.add(saucerGeom, '#b05636', { p: [x, y0, z] }, { ao: 0.2 });
+    saucerOffset = 0.012;
+  }
+
+  const { geometry: potGeom, soilY, soilRadius } = createPotGeometry(potType, o.potR, o.potH);
+  const basePotCol = new THREE.Color(potColorHex);
+  const potColAttr = potGeom.attributes.color as THREE.BufferAttribute;
+  for (let i = 0; i < potColAttr.count; i++) {
+    potColAttr.setXYZ(i, potColAttr.getX(i) * basePotCol.r, potColAttr.getY(i) * basePotCol.g, potColAttr.getZ(i) * basePotCol.b);
+  }
+  b.add(potGeom, null, { p: [x, y0 + saucerOffset, z] });
+
+  const soilBaseY = y0 + saucerOffset + soilY;
+  const soilGeom = createSoilGeometry(soilRadius, r);
+  b.add(soilGeom, null, { p: [x, soilBaseY, z] });
+
+  // Natural pebbles scattered on the soil
+  const numPebbles = Math.min(8, Math.floor(4 + o.potR * 20));
+  const pebbleColors = ['#473328', '#5c4335', '#7c6b5d', '#3b281f'];
+  for (let i = 0; i < numPebbles; i++) {
+    const rDist = THREE.MathUtils.lerp(soilRadius * 0.25, soilRadius * 0.8, r());
+    const ang = r() * Math.PI * 2;
+    const pScale = THREE.MathUtils.lerp(0.01, 0.02, r()) * (o.potR / 0.18);
+    const py = soilBaseY + Math.cos((rDist / soilRadius) * Math.PI * 0.5) * (soilRadius * 0.12);
+    b.add(sphere(1, 5, 4), pebbleColors[i % pebbleColors.length], {
+      p: [x + Math.cos(ang) * rDist, py, z + Math.sin(ang) * rDist],
+      r: [r() * 3, r() * 3, r() * 3],
+      s: [pScale * 1.3, pScale * 0.65, pScale],
+    });
+  }
+
+  const greens = o.greens ?? ['#4f8f4a', '#3d773c', '#6aa85a', '#82ba63'];
+  const droop = o.droop ?? 0.45;
+  const leafUnit = o.leaf ?? (o.potR * 0.85);
+
+  function applyLeafColor(geom: THREE.BufferGeometry, hex: string) {
+    const g = geom.clone();
+    const c = new THREE.Color(hex);
+    const ca = g.attributes.color as THREE.BufferAttribute;
+    for (let i = 0; i < ca.count; i++) {
+      ca.setXYZ(i, ca.getX(i) * c.r, ca.getY(i) * c.g, ca.getZ(i) * c.b);
+    }
+    return g;
+  }
+
+  if (style === 'pilea') {
+    const caudexH = Math.min(o.height * 0.24, o.potH * 0.35);
+    const caudexPoints = [
+      new THREE.Vector3(0, -0.05, 0),
+      new THREE.Vector3((r() - 0.5) * 0.015, caudexH * 0.45, (r() - 0.5) * 0.015),
+      new THREE.Vector3((r() - 0.5) * 0.02, caudexH, (r() - 0.5) * 0.02),
+    ];
+    const caudexCurve = new THREE.CatmullRomCurve3(caudexPoints);
+    const caudexGeom = createTaperedTubeGeometry(caudexCurve, 8, o.potR * 0.09, o.potR * 0.05, 6, '#6e503b', '#6e503b');
+    b.add(caudexGeom, null, { p: [x, soilBaseY, z] });
+
+    const leafTemplates = [
+      createSculptedLeafGeometry({ shapeType: 'pilea', length: leafUnit * 1.1, width: leafUnit * 0.95, cupping: 0.22, arch: 0.18, asymmetry: -0.05 }),
+      createSculptedLeafGeometry({ shapeType: 'pilea', length: leafUnit * 1.15, width: leafUnit * 0.92, cupping: 0.26, arch: 0.22, asymmetry: 0.06 }),
+      createSculptedLeafGeometry({ shapeType: 'pilea', length: leafUnit * 1.05, width: leafUnit * 1.0, cupping: 0.19, arch: 0.15, asymmetry: 0.0 }),
+    ];
+
+    for (let i = 0; i < o.leaves; i++) {
+      const t = i / Math.max(1, o.leaves - 1);
+      const theta = i * GOLDEN_ANGLE + (r() - 0.5) * 0.28;
+      const originH = (0.02 + t * 0.85) * caudexH;
+      const originR = (0.01 + r() * 0.035) * o.potR;
+
+      const p0 = new THREE.Vector3(Math.cos(theta) * originR, originH - 0.03, Math.sin(theta) * originR);
+      const spreadR = o.potR * (o.spread ?? 1.0) * THREE.MathUtils.lerp(1.35, 0.28, Math.pow(t, 0.82)) * (0.9 + r() * 0.22);
+      const peakH = o.height * THREE.MathUtils.lerp(0.52, 1.02, Math.pow(t, 0.65)) * (0.92 + r() * 0.16);
+      const outerDroop = (1 - t * 0.72) * droop * o.height * 0.46;
+
+      const dirX = Math.cos(theta), dirZ = Math.sin(theta);
+      const p1 = new THREE.Vector3(dirX * spreadR * 0.25, originH + peakH * 0.48, dirZ * spreadR * 0.25);
+      const p2 = new THREE.Vector3(dirX * spreadR * 0.68, originH + peakH - outerDroop * 0.35, dirZ * spreadR * 0.68);
+      const p3 = new THREE.Vector3(dirX * spreadR, originH + peakH - outerDroop, dirZ * spreadR);
+
+      const stemCurve = new THREE.CatmullRomCurve3([p0, p1, p2, p3]);
+      const stemGeom = createTaperedTubeGeometry(stemCurve, 12, o.potR * 0.036, o.potR * 0.016, 6);
+      b.add(stemGeom, null, { p: [x, soilBaseY, z] }, { sway: 0.3 * (1 - t) + 0.2 });
+
+      const leafGeom = applyLeafColor(leafTemplates[i % leafTemplates.length], greens[i % greens.length]);
+      const leafScale = THREE.MathUtils.lerp(1.15, 0.65, Math.pow(t, 1.25)) * (0.9 + r() * 0.2);
+      const tipPos = stemCurve.getPointAt(1.0);
+      const tipTan = stemCurve.getTangentAt(1.0);
+      const quat = computeLeafQuat(tipTan, new THREE.Vector3(dirX, 0, dirZ), (0.18 + (1 - t) * 0.42) * droop, r);
+
+      b.add(leafGeom, null, {
+        p: [x + tipPos.x, soilBaseY + tipPos.y, z + tipPos.z],
+        q: quat,
+        s: leafScale,
+      }, { sway: 0.5 + 0.5 * (1 - t) });
+    }
+  } else if (style === 'tree') {
+    const trunkTopY = o.height * 0.68;
+    const trunkWiggleX = (r() - 0.5) * 0.28 * o.potR;
+    const trunkWiggleZ = (r() - 0.5) * 0.28 * o.potR;
+    const trunkCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, -0.06, 0),
+      new THREE.Vector3(trunkWiggleX * 0.5, trunkTopY * 0.28, trunkWiggleZ * 0.5),
+      new THREE.Vector3(-trunkWiggleX * 0.6, trunkTopY * 0.62, -trunkWiggleZ * 0.4),
+      new THREE.Vector3(trunkWiggleX * 0.25, trunkTopY, trunkWiggleZ * 0.25),
+    ]);
+
+    const trunkBaseR = o.potR * 0.115;
+    const trunkTipR = o.potR * 0.045;
+    const trunkGeom = createTaperedTubeGeometry(trunkCurve, 18, trunkBaseR, trunkTipR, 8, '#6e503b', '#6e503b');
+    b.add(trunkGeom, null, { p: [x, soilBaseY, z] }, { sway: 0.15 });
+
+    // Root flares
+    for (let k = 0; k < 3; k++) {
+      const rAng = (k / 3) * Math.PI * 2 + (r() - 0.5) * 0.4;
+      const rootCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(Math.cos(rAng) * trunkBaseR * 0.4, 0.06, Math.sin(rAng) * trunkBaseR * 0.4),
+        new THREE.Vector3(Math.cos(rAng) * trunkBaseR * 1.15, 0.01, Math.sin(rAng) * trunkBaseR * 1.15),
+        new THREE.Vector3(Math.cos(rAng) * trunkBaseR * 1.8, -0.03, Math.sin(rAng) * trunkBaseR * 1.8),
+      ]);
+      const rootGeom = createTaperedTubeGeometry(rootCurve, 6, trunkBaseR * 0.48, trunkBaseR * 0.15, 5, '#6e503b', '#6e503b');
+      b.add(rootGeom, null, { p: [x, soilBaseY, z] });
+    }
+
+    const ficusTemplates = [
+      createSculptedLeafGeometry({ shapeType: 'ficus', length: leafUnit * 1.25, width: leafUnit * 0.76, cupping: 0.24, arch: 0.26, asymmetry: 0.04 }),
+      createSculptedLeafGeometry({ shapeType: 'ficus', length: leafUnit * 1.12, width: leafUnit * 0.72, cupping: 0.20, arch: 0.22, asymmetry: -0.04 }),
+      createSculptedLeafGeometry({ shapeType: 'ficus', length: leafUnit * 1.3, width: leafUnit * 0.8, cupping: 0.28, arch: 0.30, asymmetry: 0.0 }),
+    ];
+
+    const branchCount = 5;
+    const branches: { curve: THREE.CatmullRomCurve3; angle: number }[] = [];
+    for (let k = 0; k < branchCount; k++) {
+      const bt = 0.32 + (k / (branchCount - 1)) * 0.66;
+      const startPos = trunkCurve.getPointAt(bt);
+      const branchAngle = k * GOLDEN_ANGLE * 1.15 + (r() - 0.5) * 0.35;
+      const reach = o.potR * (o.spread ?? 1.0) * THREE.MathUtils.lerp(1.15, 0.65, (bt - 0.32) / 0.66) * (0.88 + r() * 0.27);
+      const rise = o.height * THREE.MathUtils.lerp(0.28, 0.36, (bt - 0.32) / 0.66) * (1 - droop * 0.28);
+
+      const bDirX = Math.cos(branchAngle), bDirZ = Math.sin(branchAngle);
+      const bP1 = startPos.clone().add(new THREE.Vector3(bDirX * reach * 0.38, rise * 0.45, bDirZ * reach * 0.38));
+      const bP2 = startPos.clone().add(new THREE.Vector3(bDirX * reach * 0.78, rise * 0.88 - droop * 0.14 * o.height, bDirZ * reach * 0.78));
+      const bP3 = startPos.clone().add(new THREE.Vector3(bDirX * reach, rise - droop * 0.25 * o.height, bDirZ * reach));
+
+      const bCurve = new THREE.CatmullRomCurve3([startPos, bP1, bP2, bP3]);
+      const bStartR = THREE.MathUtils.lerp(trunkBaseR * 0.55, trunkTipR * 0.85, (bt - 0.32) / 0.66);
+      const bGeom = createTaperedTubeGeometry(bCurve, 12, bStartR, o.potR * 0.022, 6, '#6e503b', '#6e503b');
+      b.add(bGeom, null, { p: [x, soilBaseY, z] }, { sway: 0.28 });
+      branches.push({ curve: bCurve, angle: branchAngle });
+    }
+
+    for (let i = 0; i < o.leaves; i++) {
+      const branch = branches[i % branches.length];
+      const prog = THREE.MathUtils.clamp(
+        0.22 + ((Math.floor(i / branches.length) + r() * 0.85) / Math.ceil(o.leaves / branches.length)) * 0.78,
+        0.2,
+        1.0
+      );
+      const nodePos = branch.curve.getPointAt(prog);
+      const sideSign = i % 2 === 0 ? 1 : -1;
+      const localAngle = branch.angle + sideSign * (0.45 + r() * 0.6) + (prog > 0.88 ? (r() - 0.5) * 0.5 : 0);
+      const outDir = new THREE.Vector3(Math.cos(localAngle), 0, Math.sin(localAngle)).normalize();
+
+      const petioleLen = (0.04 + r() * 0.04) * (o.potR / 0.2) * (1.15 - prog * 0.3);
+      const petioleDrop = droop * petioleLen * 0.55;
+      const petStart = nodePos.clone();
+      const petMid = petStart.clone().add(outDir.clone().multiplyScalar(petioleLen * 0.55)).add(new THREE.Vector3(0, petioleLen * 0.32, 0));
+      const petEnd = petStart.clone().add(outDir.clone().multiplyScalar(petioleLen)).add(new THREE.Vector3(0, petioleLen * 0.38 - petioleDrop, 0));
+
+      const petCurve = new THREE.CatmullRomCurve3([petStart, petMid, petEnd]);
+      const petGeom = createTaperedTubeGeometry(petCurve, 6, o.potR * 0.022, o.potR * 0.012, 5);
+      b.add(petGeom, null, { p: [x, soilBaseY, z] }, { sway: 0.35 });
+
+      const leafGeom = applyLeafColor(ficusTemplates[i % ficusTemplates.length], greens[i % greens.length]);
+      const scale = THREE.MathUtils.lerp(1.05, 0.72, Math.pow(prog - 0.2, 1.4)) * (0.88 + r() * 0.25);
+      const petTip = petCurve.getPointAt(1.0);
+      const petTan = petCurve.getTangentAt(1.0);
+      const quat = computeLeafQuat(petTan, outDir, (0.22 + (1 - prog * 0.4) * 0.35) * droop, r);
+
+      b.add(leafGeom, null, {
+        p: [x + petTip.x, soilBaseY + petTip.y, z + petTip.z],
+        q: quat,
+        s: scale,
+      }, { sway: 0.6 });
+    }
+  } else {
+    // style === 'bush'
+    const bushTemplates = [
+      createSculptedLeafGeometry({ shapeType: 'heart', length: leafUnit * 1.15, width: leafUnit * 0.94, cupping: 0.24, arch: 0.28, asymmetry: 0.05 }),
+      createSculptedLeafGeometry({ shapeType: 'heart', length: leafUnit * 1.05, width: leafUnit * 0.85, cupping: 0.20, arch: 0.24, asymmetry: -0.05 }),
+      createSculptedLeafGeometry({ shapeType: 'pilea', length: leafUnit * 1.08, width: leafUnit * 0.82, cupping: 0.22, arch: 0.22, asymmetry: 0.0 }),
+    ];
+
+    const crownCenters = [
+      new THREE.Vector2(0, 0),
+      new THREE.Vector2(soilRadius * 0.34, soilRadius * 0.16),
+      new THREE.Vector2(-soilRadius * 0.30, soilRadius * 0.24),
+      new THREE.Vector2(soilRadius * 0.05, -soilRadius * 0.34),
+    ];
+
+    for (let i = 0; i < o.leaves; i++) {
+      const t = i / Math.max(1, o.leaves - 1);
+      const crown = crownCenters[i % crownCenters.length];
+      const theta = i * GOLDEN_ANGLE + (r() - 0.5) * 0.36;
+
+      const dirX = Math.cos(theta), dirZ = Math.sin(theta);
+      const startJitter = (0.02 + r() * 0.06) * o.potR;
+      const p0 = new THREE.Vector3(crown.x + dirX * startJitter, -0.03, crown.y + dirZ * startJitter);
+
+      const reach = o.potR * (o.spread ?? 1.0) * THREE.MathUtils.lerp(1.25, 0.22, Math.pow(t, 0.72)) * (0.86 + r() * 0.28);
+      const rise = o.height * THREE.MathUtils.lerp(0.42, 1.0, Math.pow(t, 0.62)) * (0.88 + r() * 0.24);
+      const cascadeDrop = Math.pow(1 - t, 1.45) * droop * o.height * 0.68;
+
+      const p1 = new THREE.Vector3(crown.x + dirX * reach * 0.28, rise * 0.55, crown.y + dirZ * reach * 0.28);
+      const p2 = new THREE.Vector3(crown.x + dirX * reach * 0.72, rise - cascadeDrop * 0.32, crown.y + dirZ * reach * 0.72);
+      const p3 = new THREE.Vector3(crown.x + dirX * reach, rise - cascadeDrop, crown.y + dirZ * reach);
+
+      const stemCurve = new THREE.CatmullRomCurve3([p0, p1, p2, p3]);
+      const stemGeom = createTaperedTubeGeometry(stemCurve, 12, o.potR * 0.032, o.potR * 0.014, 6);
+      b.add(stemGeom, null, { p: [x, soilBaseY, z] }, { sway: 0.3 * (1 - t) + 0.25 });
+
+      const leafGeom = applyLeafColor(bushTemplates[i % bushTemplates.length], greens[i % greens.length]);
+      const sizeVar = THREE.MathUtils.lerp(1.2, 0.6, Math.pow(t, 1.1)) * (0.85 + r() * 0.3);
+      const tipPos = stemCurve.getPointAt(1.0);
+      const tipTan = stemCurve.getTangentAt(1.0);
+      const radialOut = new THREE.Vector3(crown.x + dirX * reach, 0, crown.y + dirZ * reach).normalize();
+      const quat = computeLeafQuat(tipTan, radialOut, (0.24 + (1 - t) * 0.52) * droop, r);
+
+      b.add(leafGeom, null, {
+        p: [x + tipPos.x, soilBaseY + tipPos.y, z + tipPos.z],
+        q: quat,
+        s: sizeVar,
+      }, { sway: 0.5 + 0.5 * (1 - t) });
+    }
   }
 }
 
@@ -488,11 +1155,11 @@ export function buildRoom(): RoomBuild {
   frame(fb, 0.82, 0.64, [-1.15, 2.4, WALL_Z], 0, 'hills');
   frame(fb, 0.6, 0.76, [0.05, 2.3, WALL_Z], 0, 'sunset');
   frame(fb, 0.62, 0.8, [4.45, 2.35, WALL_Z], 0, 'lake');
-  plant(fb, 1.48, WALL_Z + 0.42, { pot: '#efe8dc', potR: 0.2, potH: 0.36, leaves: 22, height: 1.25, spread: 0.5, leaf: 0.16, seed: 3 });
-  plant(fb, 3.72, WALL_Z + 0.45, { pot: TERRA, potR: 0.17, potH: 0.3, leaves: 18, height: 0.9, spread: 0.65, leaf: 0.15, seed: 4 });
-  plant(fb, WALL_X + 0.45, 4.15, { pot: TERRA, potR: 0.18, potH: 0.3, leaves: 18, height: 0.85, spread: 0.7, leaf: 0.15, seed: 6 });
-  plant(fb, WELL.x - 0.4, 2.9, { pot: '#efe8dc', potR: 0.17, potH: 0.3, leaves: 16, height: 0.7, spread: 0.8, leaf: 0.15, seed: 8, greens: ['#7fae5a', '#6a9a4c', '#8fbb66'] });
-  plant(fb, -2.6, WALL_Z + 0.45, { pot: TERRA, potR: 0.15, potH: 0.26, leaves: 14, height: 0.8, spread: 0.6, leaf: 0.14, seed: 12 });
+  plant(fb, 1.48, WALL_Z + 0.42, { pot: '#efe8dc', potType: 'ceramic', style: 'tree', potR: 0.21, potH: 0.38, leaves: 26, height: 1.25, seed: 719 });
+  plant(fb, 3.72, WALL_Z + 0.45, { pot: TERRA, potType: 'fluted', style: 'bush', potR: 0.19, potH: 0.26, leaves: 28, height: 0.85, droop: 0.54, seed: 928 });
+  plant(fb, WALL_X + 0.45, 4.15, { pot: TERRA, potType: 'terracotta', style: 'bush', potR: 0.18, potH: 0.26, leaves: 22, height: 0.85, droop: 0.5, seed: 6 });
+  plant(fb, WELL.x - 0.4, 2.9, { pot: '#efe8dc', potType: 'ceramic', style: 'pilea', potR: 0.17, potH: 0.26, leaves: 18, height: 0.72, droop: 0.45, seed: 8, greens: ['#7fae5a', '#6a9a4c', '#8fbb66'] });
+  plant(fb, -2.6, WALL_Z + 0.45, { pot: TERRA, potType: 'terracotta', style: 'pilea', potR: 0.17, potH: 0.25, leaves: 20, height: 0.75, droop: 0.48, seed: 402 });
 
   // Seat lamps (bodies in the furniture mesh; shades glow with the lamp level).
   const seatsLamp: (LampInfo & { world: THREE.Vector3; yaw: number })[] = [];
