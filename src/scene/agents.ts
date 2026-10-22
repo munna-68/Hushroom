@@ -178,7 +178,14 @@ class Agent {
       this.goal = goalOf(o.status);
       if (instant || this.ctx.reduced) this.place(this.goal, now);
       else if (this.goal === 'gone') this.place('gone', now);
-      else this.enterByDoor(now);
+      else {
+        this.mode = 'gone';
+        if (this.char) this.char.root.visible = false;
+        this.reactAt = now + this.slot * 0.4 + this.rand() * 0.2;
+        if (!this.doorwayBusy() && !this.ctx.agents.some((a) => a !== this && a.occ && a.goal !== 'gone' && a.mode === 'gone' && a.slot < this.slot)) {
+          this.enterByDoor(now);
+        }
+      }
       return;
     }
     if (!o) {
@@ -282,15 +289,24 @@ class Agent {
     if (this.char) { this.char.root.visible = true; this.char.status = 'focusing'; }
   }
 
+  private doorwayBusy(): boolean {
+    for (const a of this.ctx.agents) {
+      if (a === this || !a.char?.root.visible || a.mode !== 'walk') continue;
+      if (a.pos.y < -3.8 && Math.abs(a.pos.x - DOOR.x) < 1.0) return true;
+    }
+    return false;
+  }
+
   private enterByDoor(now: number) {
     if (!this.char) return;
     this.char.park();
-    this.char.root.visible = true;
     this.chairOff = CHAIR_IN; this.chairYaw = 0;
     const d = this.ctx.nav.node('dout');
     this.pos.set(d.x, d.y);
     this.heading = 0;
     this.rootY = STAND_ROOT_Y;
+    this.worldToRoot(this.pos.x, this.rootY, this.pos.y, this.heading);
+    this.char.root.visible = true;
     this.u = 1;
     this.mode = 'walk';
     standPose(this.pose, now, this.ph);
@@ -343,6 +359,7 @@ class Agent {
     const nav = this.ctx.nav;
     const P = this.path;
     const isChair = this.mode === 'chair';
+    const isDoor = this.pos.y <= -5.8 && Math.abs(this.pos.x - DOOR.x) < 0.4;
 
     if (isChair) {
       const gap = this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2());
@@ -362,6 +379,33 @@ class Agent {
 
       if (this.goal === 'seat') {
         P.push(gap, this.seatToWorld(0, STAND_Z, new THREE.Vector2()));
+        this.arrive = 'seat';
+        this.faceEnd = this.seat.anchor.rotation.y;
+      } else if (this.goal === 'break') {
+        const sp = this.spot!;
+        if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
+        this.arrive = 'dest';
+        this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
+      } else {
+        this.arrive = 'door';
+        this.faceEnd = null;
+      }
+    } else if (isDoor) {
+      let tgt: string;
+      if (this.goal === 'seat') {
+        tgt = this.aisleNode(this.side);
+      } else if (this.goal === 'break') {
+        if (!this.spot) this.pickSpot();
+        tgt = this.spot!.node;
+      } else {
+        tgt = 'dout';
+      }
+      P.length = 0;
+      for (const nm of nav.route('dout', tgt)) P.push(nav.node(nm).clone());
+      if (P.length && P[0].distanceTo(this.pos) < 0.25) P.shift();
+
+      if (this.goal === 'seat') {
+        P.push(this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2()), this.seatToWorld(0, STAND_Z, new THREE.Vector2()));
         this.arrive = 'seat';
         this.faceEnd = this.seat.anchor.rotation.y;
       } else if (this.goal === 'break') {
@@ -406,7 +450,7 @@ class Agent {
     const busy = this.char.gesturing;
     switch (this.mode) {
       case 'gone':
-        if (this.occ && this.goal !== 'gone' && t >= this.reactAt) this.enterByDoor(t);
+        if (this.occ && this.goal !== 'gone' && t >= this.reactAt && !this.doorwayBusy()) this.enterByDoor(t);
         break;
       case 'seated':
         if (this.micro && t > this.microStart + this.microDur) { this.micro = null; this.nextMicro = t + (14 + this.rand() * 34) / Math.max(0.15, this.ctx.micro); }
@@ -509,8 +553,8 @@ class Agent {
     if (ahead) {
       vmax = 0;
       this.blocked += dt;
-      if (this.blocked > 1.0 && ahead.slot < this.slot) {
-        // Step aside to the right and let them pass.
+      if (this.blocked > 1.0 && ahead.slot < this.slot && this.pos.y > -3.5) {
+        // Step aside to the right and let them pass (aisles only, not in narrow doorway).
         const rx = Math.cos(this.heading), rz = -Math.sin(this.heading);
         P.splice(this.pi, 0, new THREE.Vector2(this.pos.x + rx * 0.45 + Math.sin(this.heading) * 0.1, this.pos.y + rz * 0.45 + Math.cos(this.heading) * 0.1));
         this.blocked = -1.5;
@@ -1279,8 +1323,8 @@ export function createCrowd(room: RoomBuild): Crowd {
       // The door swings open for anyone close to it.
       let near = false;
       const din = nav.node('din');
-      for (const a of agents) if (a.char?.root.visible && a.mode === 'walk' && Math.hypot(a.pos.x - din.x, a.pos.y - din.y) < 1.6) near = true;
-      doorOpen += ((near ? 1 : 0) - doorOpen) * (1 - Math.exp(-(near ? 5 : 2.2) * dt));
+      for (const a of agents) if (a.char?.root.visible && a.mode === 'walk' && Math.hypot(a.pos.x - din.x, a.pos.y - din.y) < 2.0) near = true;
+      doorOpen += ((near ? 1 : 0) - doorOpen) * (1 - Math.exp(-(near ? 6 : 2.5) * dt));
       door.rotation.y = 1.35 * doorOpen * doorOpen * (3 - 2 * doorOpen);
     },
     update(t, dt, camPos) {

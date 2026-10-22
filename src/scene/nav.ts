@@ -27,6 +27,20 @@ export function segmentHitsTable(x1: number, z1: number, x2: number, z2: number)
   return u1 <= u2;
 }
 
+// Back wall at z = -5.2 has doorway at DOOR.x = 2.55, width = 1.06 ([2.02, 3.08])
+const WALL_Z_LINE = -5.2;
+const DOOR_X0 = 2.05, DOOR_X1 = 3.05;
+
+/** Checks if a straight-line segment crosses the back wall outside of the doorway opening. */
+export function segmentHitsWall(x1: number, z1: number, x2: number, z2: number): boolean {
+  if ((z1 < WALL_Z_LINE && z2 > WALL_Z_LINE) || (z1 > WALL_Z_LINE && z2 < WALL_Z_LINE)) {
+    const t = (WALL_Z_LINE - z1) / (z2 - z1);
+    const xCross = x1 + t * (x2 - x1);
+    if (xCross < DOOR_X0 || xCross > DOOR_X1) return true;
+  }
+  return false;
+}
+
 export class Nav {
   readonly names: string[];
   readonly pos: THREE.Vector2[];
@@ -84,6 +98,7 @@ export class Nav {
     let best = -1, bestCost = Infinity;
     for (let i = 0; i < this.n; i++) {
       if (segmentHitsTable(x, z, this.pos[i].x, this.pos[i].y)) continue;
+      if (segmentHitsWall(x, z, this.pos[i].x, this.pos[i].y)) continue;
       const c = Math.hypot(this.pos[i].x - x, this.pos[i].y - z) * 1.15 + this.dist[i * this.n + t];
       if (c < bestCost) { bestCost = c; best = i; }
     }
@@ -95,11 +110,18 @@ export class Nav {
     }
     out.length = 0;
     for (const nm of this.route(this.names[best], to)) out.push(this.node(nm).clone());
-    // Skip a first node that lies behind us relative to the second, provided the direct shortcut doesn't hit the table.
+    // Skip a first node that lies behind us relative to the second, provided the direct shortcut doesn't hit table or wall.
     if (out.length >= 2) {
       const a = out[0], b = out[1];
       const ab = b.clone().sub(a), ap = new THREE.Vector2(x - a.x, z - a.y);
-      if (ab.dot(ap) > 0 && ap.length() < ab.length() && !segmentHitsTable(x, z, b.x, b.y)) out.shift();
+      if (
+        ab.dot(ap) > 0 &&
+        ap.length() < ab.length() &&
+        !segmentHitsTable(x, z, b.x, b.y) &&
+        !segmentHitsWall(x, z, b.x, b.y)
+      ) {
+        out.shift();
+      }
     }
     return out;
   }

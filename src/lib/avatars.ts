@@ -42,7 +42,7 @@ export const AVATARS: AvatarVariant[] = [
   { id: 0, label: 'Short crop, sage hoodie', spec: S('crop', 0, 1, 'hoodie', 1, 0, []) },
   { id: 1, label: 'Curls, glasses and backpack', spec: S('curly', 0, 6, 'hoodie', 1, 0, ['glasses', 'backpack'], 'determined') },
   { id: 2, label: 'Low ponytail, rust cardigan', spec: S('ponytail', 2, 0, 'cardigan', 4, 1, ['headphones']) },
-  { id: 3, label: 'Curls in a beanie, track jacket', spec: S('curly', 1, 7, 'track', 2, 3, ['beanie'], 'determined') },
+  { id: 3, label: 'Curls in a beanie, track jacket', spec: S('curly', 6, 6, 'track', 2, 3, ['beanie'], 'determined') },
   { id: 4, label: 'Bob, cream sweater', spec: S('bob', 1, 2, 'sweater', 0, 4, ['clips']) },
   { id: 5, label: 'Bun, blue sweatshirt', spec: S('bun', 0, 3, 'sweatshirt', 6, 2, ['scarf']) },
   { id: 6, label: 'Side swept, puffer vest', spec: S('swept', 3, 1, 'vest', 3, 1, ['headphones'], 'determined') },
