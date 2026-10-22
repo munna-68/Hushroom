@@ -7,13 +7,13 @@ import { charMaterials, disposeCharacterCache } from './characterBuild';
 import { faceKit } from './faceAtlas';
 import { materials } from './toon';
 import { buildRoom } from './room';
-import { createCrowd, type Crowd, type Occupant } from './crowd';
+import { createCrowd, type Crowd, type LabAction, type Occupant } from './agents';
 import { lightRig, patchLighting, stUniforms } from './envMaterial';
 import { blendAtmo, createAtmo, type TimeOfDay, type Weather } from './atmosphere';
 import { createQuality, type QualityStats, type Tier, type TierChoice } from './quality';
 import { createCameraRig, type CameraView } from './camera';
 import { createMotes, createSteam } from './ambient';
-import { MAX_SLOTS, type SlotStatus } from './hall';
+import { MAX_SLOTS, NAV_EDGES, NAV_NODES, SPOTS, type SlotStatus } from './hall';
 
 export type { Status } from './character';
 export type { TimeOfDay, Weather } from './atmosphere';
@@ -49,6 +49,12 @@ export interface SceneDebug {
   view(): CameraView;
   setView(v: Partial<CameraView>, instant?: boolean): void;
   capture(width: number, height: number): string;
+  /** Trigger a state or animation on one slot (Scene Lab). */
+  lab(slot: number, action: LabAction): void;
+  /** One line per slot describing what the agent is doing. */
+  agents(): string[];
+  /** Waypoint graph / lamp-state overlays. */
+  overlay(kind: 'graph' | 'lamps', on: boolean): void;
   /** Render from an arbitrary viewpoint (close-ups in the lab). */
   captureFrom(eye: [number, number, number], target: [number, number, number], fov: number, width: number, height: number): string;
   /** Advance the simulation by `sec` seconds without waiting for frames (lab captures). */
@@ -128,6 +134,9 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
   const camRig = createCameraRig(renderer.domElement);
   const camera = camRig.camera;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const onReduced = () => crowd.setReducedMotion(reduced.matches);
+  onReduced();
+  reduced.addEventListener('change', onReduced);
 
   const labels: HTMLDivElement[] = Array.from({ length: MAX_SLOTS }, () => {
     const d = document.createElement('div');
@@ -164,6 +173,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
       });
     }
     room.setQuality(s);
+    crowd.setMicroRate(s.micro, s.halfRateFar);
     motes.setCount(s.motes);
     steam.setCount(s.steamPerMug);
     const px = dpr * height * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
@@ -267,8 +277,8 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     if (atmoDirty) { applyAtmo(); atmoDirty = false; }
     const ambientT = still ? simT * 0.3 : simT;
     room.window.uniforms.uTime.value = ambientT;
+    crowd.update(simT, frameDt, camera.position);
     room.update(simT, frameDt, atmo);
-    crowd.update(simT, frameDt);
     for (let i = 0; i < MAX_SLOTS; i++) {
       const s = room.seats[i];
       if (s.kit.visible && occ[i] && occ[i]!.status !== 'away') steam.setSource(i, mugW.setFromMatrixPosition(s.mug.matrixWorld).setY(mugW.y + 0.11));
@@ -278,6 +288,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     motes.update(ambientT, atmo.motes, atmo.sun);
     camRig.update(frameDt, simT, still);
     renderer.render(scene, camera);
+    drawLampTags();
     if (labelsVisible) {
       for (let i = 0; i < MAX_SLOTS; i++) {
         const l = labels[i];
@@ -288,6 +299,50 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
         l.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
       }
     }
+  }
+
+  // ---- debug overlays -----------------------------------------------------------------
+  let graph: THREE.Group | null = null;
+  let lampTags: HTMLDivElement[] | null = null;
+  function overlay(kind: 'graph' | 'lamps', on: boolean) {
+    if (kind === 'graph') {
+      if (on && !graph) {
+        graph = new THREE.Group();
+        const pts: number[] = [];
+        for (const [a, b] of NAV_EDGES) pts.push(NAV_NODES[a][0], 0.06, NAV_NODES[a][1], NAV_NODES[b][0], 0.06, NAV_NODES[b][1]);
+        const lg = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+        graph.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: '#7fe0d0', depthTest: false, transparent: true })));
+        const dot = new THREE.SphereGeometry(0.06, 8, 6);
+        const nodeMat = new THREE.MeshBasicMaterial({ color: '#7fe0d0', depthTest: false, transparent: true });
+        const spotMat = new THREE.MeshBasicMaterial({ color: '#f2b45a', depthTest: false, transparent: true });
+        for (const k of Object.keys(NAV_NODES)) { const m = new THREE.Mesh(dot, nodeMat); m.position.set(NAV_NODES[k][0], 0.06, NAV_NODES[k][1]); graph.add(m); }
+        for (const sp of SPOTS) { const m = new THREE.Mesh(dot, spotMat); m.scale.setScalar(1.6); m.position.set(sp.x, 0.08, sp.z); graph.add(m); }
+        graph.renderOrder = 10;
+        graph.traverse((o) => { o.renderOrder = 10; });
+        scene.add(graph);
+      } else if (!on && graph) {
+        scene.remove(graph);
+        graph.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); });
+        graph = null;
+      }
+    } else if (on && !lampTags) {
+      lampTags = room.seats.map(() => {
+        const d = document.createElement('div');
+        d.style.cssText = 'position:absolute;left:0;top:0;font:10px/1.2 ui-monospace,monospace;background:rgba(0,0,0,.7);color:#ffe2b0;padding:1px 4px;border-radius:4px;white-space:nowrap;pointer-events:none';
+        labelLayer.appendChild(d);
+        return d;
+      });
+    } else if (!on && lampTags) { lampTags.forEach((d) => d.remove()); lampTags = null; }
+  }
+  const lv = new THREE.Vector3();
+  function drawLampTags() {
+    if (!lampTags) return;
+    room.seats.forEach((s, i) => {
+      lv.copy(s.lamp.world).project(camera);
+      const o = occ[i];
+      lampTags![i].textContent = `${i + 1} ${o ? o.status : 'empty'} lamp ${(s.lamp.level * 100).toFixed(0)}%→${(s.lamp.target * 100).toFixed(0)}%`;
+      lampTags![i].style.transform = `translate3d(${((lv.x * 0.5 + 0.5) * width).toFixed(1)}px, ${((-lv.y * 0.5 + 0.5) * height).toFixed(1)}px, 0) translate(-50%, -150%)`;
+    });
   }
 
   let hudT = 0;
@@ -308,7 +363,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     quality.frame(ms, ts / 1000);
     const dt = Math.min(ms / 1000, 0.1) * speed;
     acc += dt;
-    while (acc >= FIXED) { acc -= FIXED; simT += FIXED; }
+    while (acc >= FIXED) { acc -= FIXED; simT += FIXED; crowd.step(simT, FIXED); }
     render(dt);
     if (hud && ts / 1000 - hudT > 0.5) {
       hudT = ts / 1000;
@@ -358,8 +413,11 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     },
     step(sec) {
       const n = Math.round(sec / FIXED);
-      for (let i = 0; i < n; i++) { simT += FIXED; render(FIXED); }
+      for (let i = 0; i < n; i++) { simT += FIXED; crowd.step(simT, FIXED); render(FIXED); }
     },
+    lab: (slot, a) => crowd.lab(slot, a),
+    overlay,
+    agents: () => Array.from({ length: MAX_SLOTS }, (_, i) => crowd.debug(i)),
     crowd, scene, renderer,
   };
   if (import.meta.env.DEV) (window as unknown as { __st: unknown }).__st = { debug, room, quality, camRig, atmo };
@@ -378,6 +436,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     dispose() {
       stop();
       document.removeEventListener('visibilitychange', onVis);
+      reduced.removeEventListener('change', onReduced);
       ro.disconnect();
       unsubQ();
       camRig.dispose();

@@ -4,6 +4,7 @@
 // import.meta.env.DEV, so it never ships.
 import { AVATARS } from '../lib/avatars';
 import { MAX_SLOTS, createStudyScene, type Participant, type SlotStatus, type StudySceneHandle, type TierChoice } from '../scene';
+import type { LabAction } from '../scene/agents';
 
 const NAMES = ['Mina', 'Arjun', 'Sofia', 'Kenji', 'Lea', 'Omar', 'Priya', 'Noah'];
 
@@ -78,6 +79,20 @@ export function mountSceneLab(el: HTMLElement) {
   r = row();
   (['focus', 'break', 'away', 'empty'] as SlotStatus[]).forEach((s) => btn(r, s, () => { people[slot].status = s; push(); }));
   r = row();
+  const act = (a: LabAction) => () => scene.debug.lab(slot, a);
+  btn(r, 'stand (stretch)', act('stand'));
+  btn(r, 'sit', act('sit'));
+  btn(r, 'bookshelf', act('shelf'));
+  btn(r, 'window', act('window'));
+  btn(r, 'sofa', act('sofa'));
+  btn(r, 'in-place stretch', act('stretch'));
+  r = row();
+  btn(r, 'join (door)', () => { if (people[slot].status !== 'empty') { people[slot].status = 'empty'; push(); } setTimeout(() => { people[slot].status = 'focus'; people[slot].id = `lab-${slot}-${Date.now()}`; push(); }, 50); });
+  btn(r, 'leave (door)', () => { people[slot].status = 'empty'; push(); });
+  btn(r, 'away', () => { people[slot].status = 'away'; push(); });
+  r = row();
+  (['leanBack', 'restHead', 'raiseBook', 'penTwirl', 'rubEyes', 'yawn', 'glance', 'stretchUp'] as LabAction[]).forEach((m) => btn(r, m, act(m)));
+  r = row();
   btn(r, 'next avatar', () => { people[slot].avatar = ((people[slot].avatar ?? 0) + 1) % AVATARS.length; people[slot].id = `lab-${slot}-${people[slot].avatar}`; push(); });
 
   h('Camera');
@@ -91,6 +106,12 @@ export function mountSceneLab(el: HTMLElement) {
   btn(r, 'Portrait phone', () => { size(390, 844); scene.resetView(); });
   btn(r, 'Fill window', () => { size(null, null); scene.resetView(); });
   btn(r, 'Reset view', () => scene.resetView());
+
+  h('Overlays');
+  r = row();
+  let g = false, l = false;
+  btn(r, 'waypoint graph', () => { g = !g; scene.debug.overlay('graph', g); });
+  btn(r, 'lamp states', () => { l = !l; scene.debug.overlay('lamps', l); });
 
   h('Speed');
   const sp = document.createElement('input');
@@ -110,7 +131,8 @@ export function mountSceneLab(el: HTMLElement) {
   const tick = () => {
     const s = scene.debug.stats();
     const v = scene.debug.view();
-    readout.textContent = `tier ${s.tier} (${s.choice})\n${s.fps.toFixed(0)} fps  p95 ${s.p95.toFixed(1)} ms\n${s.calls} draw calls  ${(s.triangles / 1000).toFixed(1)}k tris\n${s.geometries} geos  ${s.textures} textures\nyaw ${(v.yaw * 57.3).toFixed(0)}°  pitch ${(v.pitch * 57.3).toFixed(0)}°  zoom ${v.zoom.toFixed(2)}`;
+    const ag = scene.debug.agents().map((x, i) => `${i + 1} ${x}`).join('\n');
+    readout.textContent = `tier ${s.tier} (${s.choice})\n${s.fps.toFixed(0)} fps  p95 ${s.p95.toFixed(1)} ms\n${s.calls} draw calls  ${(s.triangles / 1000).toFixed(1)}k tris\n${s.geometries} geos  ${s.textures} textures\nyaw ${(v.yaw * 57.3).toFixed(0)}°  pitch ${(v.pitch * 57.3).toFixed(0)}°  zoom ${v.zoom.toFixed(2)}\n${ag}`;
   };
   setInterval(tick, 500);
   const closeup = async (name: string, eye: [number, number, number], target: [number, number, number], fov = 40, w = 900, hh = 600) => {

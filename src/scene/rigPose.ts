@@ -146,6 +146,10 @@ export class UpperSnapshot {
     UPPER.forEach((n, i) => this.q[i].copy(rig.bones[n].quaternion));
     this.sy = rig.bones.torso.scale.y;
   }
+  /** Put the arms back exactly as the seated system had them. */
+  restoreArms(rig: CharacterRig) {
+    for (let i = 2; i < UPPER.length; i++) rig.bones[UPPER[i]].quaternion.copy(this.q[i]);
+  }
   /** Bones currently hold our pose; move them toward the snapshot by w (1 = snapshot). */
   blend(rig: CharacterRig, w: number) {
     if (w <= 0) return;

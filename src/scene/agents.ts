@@ -51,7 +51,7 @@ export interface Crowd {
 
 type Goal = 'seat' | 'break' | 'gone';
 type Mode = 'gone' | 'seated' | 'chair' | 'walk' | 'dest' | 'pushIn';
-type Arrive = 'seat' | 'dest' | 'door' | 'none';
+type Arrive = 'seat' | 'dest' | 'door' | 'push' | 'none';
 
 const TY = 0.565;
 const STAND_Z = -0.07; // where someone stands after rising, seat space
@@ -142,7 +142,6 @@ class Agent {
   // Timing.
   private reactAt = -1;
   private nextBlink = 0;
-  private expr: Expression = 'smile';
   // Seated micro behaviours.
   private micro: SeatedMicro | null = null;
   private microStart = 0;
@@ -153,12 +152,11 @@ class Agent {
   private pose = makePose();
   private goalPose = makePose();
   private snap = new UpperSnapshot();
-  private charW = 1;
   private kPose = 10;
   private pen: THREE.Object3D | null = null;
   private bookHome = new THREE.Vector3();
   private bookHomeRot = new THREE.Euler();
-  private pendingDt = 0;
+  pendingDt = 0;
   far = false;
 
   constructor(slot: number, seat: Seat, ctx: Ctx) {
@@ -280,13 +278,11 @@ class Agent {
     this.heading = this.seat.anchor.rotation.y;
     this.rootY = CHAIR_ROOT_Y;
     this.lieQ = null; this.lieW = 0;
-    this.charW = 1;
     if (this.char) { this.char.root.visible = true; this.char.status = 'focusing'; }
   }
 
   private enterByDoor(now: number) {
     if (!this.char) return;
-    this.seat.kitTarget = this.goal === 'gone' ? this.seat.kitTarget : 1;
     this.char.park();
     this.char.root.visible = true;
     this.chairOff = CHAIR_IN; this.chairYaw = 0;
@@ -296,7 +292,6 @@ class Agent {
     this.rootY = STAND_ROOT_Y;
     this.u = 1;
     this.mode = 'walk';
-    this.charW = 0;
     standPose(this.pose, now, this.ph);
     this.planForGoal(now);
   }
@@ -358,14 +353,14 @@ class Agent {
       nav.pathFrom(this.pos.x, this.pos.y, sp.node, P);
       if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
       this.arrive = 'dest';
-      this.faceEnd = sp.kind === 'sofa' ? Math.PI : sp.face;
+      this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
     } else {
       nav.pathFrom(this.pos.x, this.pos.y, 'dout', P);
       this.arrive = 'door';
       this.faceEnd = null;
     }
     // Leaving the seat: step out through the side gap first.
-    if (this.mode === 'chair' || this.mode === 'pushIn') {
+    if (this.mode === 'chair') {
       const gap = this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2());
       const aisle = this.seatToWorld(this.side * GAP_X, AISLE_L, new THREE.Vector2());
       if (P.length && P[0].distanceTo(aisle) < 0.05) P.shift();
@@ -387,6 +382,9 @@ class Agent {
         if (this.occ && this.goal !== 'gone' && t >= this.reactAt) this.enterByDoor(t);
         break;
       case 'seated':
+        if (this.micro && t > this.microStart + this.microDur) { this.micro = null; this.nextMicro = t + (14 + this.rand() * 34) / Math.max(0.15, this.ctx.micro); }
+        // Getting up for something: wind a running seated pose down first.
+        if (this.goal !== 'seat' && this.micro && this.microStart + this.microDur - t > 0.9) this.microDur = Math.max(t - this.microStart, 0.9) + 0.9;
         if (this.goal !== 'seat' && t >= this.reactAt && !busy && !this.micro) {
           if (this.goal === 'break') this.pickSpot();
           this.wantMug = !!this.spot && (this.spot.kind === 'window' || this.spot.kind === 'sofa');
@@ -400,7 +398,7 @@ class Agent {
         const wantUp = this.goal !== 'seat';
         if (wantUp !== this.uDir > 0) this.uDir = wantUp ? 1 : -1; // reverse mid-way
         if (this.u >= 1 && this.uDir > 0) {
-          if (!this.occ) { this.mode = 'pushIn'; this.dT = 0; } else this.planForGoal(t);
+          if (!this.occ) this.planPushIn(); else this.planForGoal(t);
         } else if (this.u <= 0 && this.uDir < 0) {
           this.finishSit(t);
         }
@@ -419,11 +417,24 @@ class Agent {
     }
   }
 
+  /** Leaving for good: round to the back of the chair to push it in. */
+  private planPushIn() {
+    const P = this.path;
+    P.length = 0;
+    P.push(this.seatToWorld(this.side * GAP_X, -0.12, new THREE.Vector2()), this.seatToWorld(this.side * GAP_X, -0.95, new THREE.Vector2()), this.seatToWorld(0, -0.98, new THREE.Vector2()));
+    this.pi = 0;
+    this.arrive = 'push';
+    this.faceEnd = this.seat.anchor.rotation.y;
+    this.mode = 'walk';
+  }
+
   private finishSit(t: number) {
     if (!this.char) return;
     // Hand back to the seated act system with everything where it belongs.
     this.putHeldOnTable();
     this.carry = null;
+    this.wantMug = false;
+    this.seat.kitTarget = 1;
     this.char.park();
     this.char.quietUntil = t + 2;
     this.toSeated(t);
@@ -433,12 +444,23 @@ class Agent {
   private stepWalk(t: number, dt: number) {
     if (this.goalChanged()) this.planForGoal(t);
     const P = this.path;
-    if (this.pi >= P.length) { this.arrived(t); return; }
+    if (this.pi >= P.length) {
+      // Turn on the spot to face the way the arrival wants, then arrive.
+      if (this.faceEnd !== null && Math.abs(wrap(this.faceEnd - this.heading)) > 0.06) {
+        const e = wrap(this.faceEnd - this.heading);
+        this.heading = wrap(this.heading + THREE.MathUtils.clamp(e, -3.6 * dt, 3.6 * dt));
+        this.speed = 0;
+        this.gait += dt * 6;
+        return;
+      }
+      this.arrived(t);
+      return;
+    }
     const tgt = P[this.pi];
     const dx = tgt.x - this.pos.x, dz = tgt.y - this.pos.y;
     const d = Math.hypot(dx, dz);
     const last = this.pi === P.length - 1;
-    if (d < (last ? 0.04 : 0.22)) { this.pi++; if (this.pi >= P.length) this.arrived(t); return; }
+    if (d < (last ? 0.04 : 0.22)) { this.pi++; return; }
     // Turn toward the target; slow down for sharp turns so nobody slides.
     const want = Math.atan2(dx, dz);
     const err = wrap(want - this.heading);
@@ -479,12 +501,16 @@ class Agent {
   }
 
   private goalChanged(): boolean {
-    return (this.arrive === 'seat' && this.goal !== 'seat') || (this.arrive === 'dest' && this.goal !== 'break') || (this.arrive === 'door' && this.goal !== 'gone' && !!this.occ);
+    return (this.arrive === 'seat' && this.goal !== 'seat') || (this.arrive === 'dest' && this.goal !== 'break') || ((this.arrive === 'door' || this.arrive === 'push') && this.goal !== 'gone' && !!this.occ);
   }
 
   private arrived(t: number) {
     this.speed = 0;
-    if (this.arrive === 'seat') {
+    if (this.arrive === 'push') {
+      this.mode = 'pushIn';
+      this.dT = 0;
+      this.seat.kitTarget = 0;
+    } else if (this.arrive === 'seat') {
       this.mode = 'chair';
       this.uDir = -1;
       this.u = 1;
@@ -539,10 +565,7 @@ class Agent {
 
   private stepMicro(t: number) {
     const c = this.char!;
-    if (this.micro) {
-      if (t > this.microStart + this.microDur) { this.micro = null; this.nextMicro = t + (14 + this.rand() * 34) / Math.max(0.15, this.ctx.micro); }
-      return;
-    }
+    if (this.micro) return;
     const forced = this.forced && SEATED_MICROS.includes(this.forced as SeatedMicro) ? (this.forced as SeatedMicro) : null;
     if (!forced && (this.ctx.micro <= 0 || t < this.nextMicro || this.ctx.reduced)) return;
     if (c.gesturing) { c.quietUntil = t + 1; return; }
@@ -604,10 +627,9 @@ class Agent {
   }
 
   /** Forget held things; books go back on the shelf (nobody leaves with library books). */
-  private dropHeld(keepTable: boolean) {
+  private dropHeld(_all: boolean) {
     if (this.book >= 0) this.restoreBook();
-    if (!keepTable && this.bookOnTable >= 0) { hideBook(this.ctx.room.books, this.bookOnTable, false); this.ctx.borrowed.delete(this.bookOnTable); this.bookOnTable = -1; }
-    if (keepTable && this.bookOnTable >= 0) { hideBook(this.ctx.room.books, this.bookOnTable, false); this.ctx.borrowed.delete(this.bookOnTable); this.bookOnTable = -1; }
+    if (this.bookOnTable >= 0) { hideBook(this.ctx.room.books, this.bookOnTable, false); this.ctx.borrowed.delete(this.bookOnTable); this.bookOnTable = -1; }
     this.carry = null;
     this.wantMug = false;
     this.bookOpen = 0;
@@ -630,7 +652,7 @@ class Agent {
       case 'seated': {
         useChar = 1;
         const mw = this.micro ? win(t - this.microStart, 0, 0.9, this.microDur - 0.9, this.microDur) : 0;
-        if (mw > 0) { useChar = 1 - mw; expr = this.seatedMicro(t, g); }
+        if (mw > 0) { useChar = 1 - mw; expr = this.seatedMicro(t, g); } else seatedBase(g, t, this.ph);
         this.chairOff = 0; this.chairYaw = 0;
         break;
       }
@@ -644,13 +666,15 @@ class Agent {
       case 'pushIn': {
         standPose(g, t, this.ph);
         const k = win(this.dT, 0, 0.3, 0.8, 1.1);
-        // Hands on the chair back, slide it in.
-        _v.set(0, 0.62, 0.35);
-        g.armL.lerp(_a.set(-0.2, 0.34, 0.42), k); g.armR.lerp(_a.set(0.2, 0.34, 0.42), k);
-        g.lean = 0.18 * k;
-        this.chairOff = THREE.MathUtils.lerp(CHAIR_BACK, CHAIR_IN, seg(this.dT, 0.25, 0.85));
-        this.chairYaw = this.side * 0.22 * (1 - seg(this.dT, 0.25, 0.85));
-        lz = STAND_Z - 0.3; ly = STAND_ROOT_Y;
+        const slide = seg(this.dT, 0.25, 0.85);
+        this.chairOff = THREE.MathUtils.lerp(CHAIR_BACK, CHAIR_IN, slide);
+        this.chairYaw = this.side * 0.22 * (1 - slide);
+        lz = -0.98 + 0.5 * slide; ly = STAND_ROOT_Y;
+        // Hands on the chair's top rail (seat space z = chair - 0.2, height 0.62).
+        const rz = this.chairOff - 0.2 - lz;
+        g.armL.lerp(_a.set(-0.2, 0.62 - STAND_ROOT_Y, rz), k); g.armR.lerp(_a.set(0.2, 0.62 - STAND_ROOT_Y, rz), k);
+        g.lean = 0.25 * k;
+        walkPose(g, this.dT * 7, slide * (1 - slide) * 3, t, this.ph);
         break;
       }
       case 'walk': {
@@ -678,7 +702,8 @@ class Agent {
       else dampPose(this.pose, g, this.kPose, dt);
       applyPose(rig, this.pose);
       if (useChar > 0) this.snap.blend(rig, useChar);
-      if (this.mode === 'seated' && this.micro === 'glance') { /* arms stay with the act system */ }
+      // Glancing at a neighbour: hands keep doing what they were doing.
+      if (this.mode === 'seated' && this.micro === 'glance') this.snap.restoreArms(rig);
     } else {
       copyPose(this.pose, g);
       seatedLegs(this.pose);
@@ -731,7 +756,7 @@ class Agent {
   // ---- pose builders -------------------------------------------------------------------------------
 
   /** Getting up / sitting down. Returns the root's seat-space z and height. */
-  private chairPose(t: number, g: Pose): { lz: number; ly: number } {
+  private chairPose(_t: number, g: Pose): { lz: number; ly: number } {
     const u = this.u;
     const a = seg(u, 0, 0.25), b = seg(u, 0.25, 0.55), c = seg(u, 0.55, 1);
     // Seated base → hands to the table edge → push back with the chair → rise.
@@ -872,14 +897,14 @@ class Agent {
     const lie = this.lying ? seg(k, 0.5, 1) : 0;
     this.pos.set(THREE.MathUtils.lerp(ap.x, hipX, this.lying ? seg(k, 0.3, 1) : 0) + (this.lying ? 0 : 0), THREE.MathUtils.lerp(ap.y, SOFA.z + 0.02, sit));
     if (!this.lying) this.pos.x = sp.x;
-    this.rootY = THREE.MathUtils.lerp(STAND_ROOT_Y, SOFA.seat - 0.1, smooth(sit)) + 0.12 * lie;
+    this.rootY = THREE.MathUtils.lerp(STAND_ROOT_Y, SOFA.seat - 0.1, smooth(sit)) + 0.27 * lie;
     if (this.dPhase !== 'enter' || this.dT > 0.4) this.heading = wrap(this.heading + wrap(0 - this.heading) * 0.2);
     this.lieQ = this.lying && lie > 0 ? LIE_Q : null;
     if (this.lying) this.lieW = lie;
     const lt = t - this.dSubT + this.ph * 3;
     if (lie > 0) {
       g.hipL = g.hipR = -0.12 * lie + SEAT_HIP * 0.95 * (1 - lie); g.kneeL = g.kneeR = 0.25 * lie + 1.4 * (1 - lie); g.splay = 0.02;
-      g.lean = 0; g.hp = -0.2 * lie; g.hy = 0.35 * lie; g.hr = 0.1 * lie;
+      g.lean = 0.36 * lie; g.hp = 0.1 * lie; g.hy = 0.35 * lie; g.hr = 0.1 * lie;
     } else {
       g.hipL = g.hipR = SEAT_HIP * 0.95 * sit; g.kneeL = g.kneeR = 1.45 * sit; g.splay = 0.06 * sit;
       g.lean = -0.2 * sit; g.hp = 0.02;
@@ -938,12 +963,7 @@ class Agent {
   /** New seated poses, built on the seated root; returns the face. */
   private seatedMicro(t: number, g: Pose): Expression | null {
     const lt = t - this.microStart;
-    // Neutral seated base (matches the act system's resting pose).
-    g.lean = 0.1; g.yaw = 0; g.sway = 0; g.hp = 0.12; g.hy = 0; g.hr = 0;
-    g.armL.set(-0.17, TY, 0.44); g.armR.set(0.17, TY, 0.44);
-    g.poleL.set(-0.9, -0.6, -0.5); g.poleR.set(0.9, -0.6, -0.5);
-    seatedLegs(g);
-    g.breath = 1 + 0.012 * Math.sin(t * 1.7 + this.ph);
+    seatedBase(g, t, this.ph);
     this.kPose = 6;
     switch (this.micro) {
       case 'leanBack':
@@ -1127,8 +1147,7 @@ class Agent {
     }
     if (a === 'stand') { this.goal = 'break'; this.forced = 'stretch'; this.reactAt = t; this.spot = null; return; }
     if (a === 'sit') { this.goal = 'seat'; this.reactAt = t; return; }
-    if (a === 'leave') { this.goal = 'gone'; this.reactAt = t; return; }
-    if (a === 'join') { this.goal = 'seat'; if (this.mode !== 'gone') { this.mode = 'gone'; this.char.root.visible = false; } this.reactAt = t; this.enterByDoor(t); return; }
+    if (a === 'leave' || a === 'join') return; // the lab drives these through the seat status
     // A destination: go there now.
     this.forced = a;
     this.ctx.spots.release(this.slot);
@@ -1148,6 +1167,15 @@ const _c = new THREE.Color();
 function goalOf(s: SlotStatus): Goal { return s === 'focus' ? 'seat' : s === 'break' ? 'break' : 'gone'; }
 
 function seatedLegs(p: Pose) { p.hipL = p.hipR = SEAT_HIP; p.kneeL = p.kneeR = SEAT_KNEE; p.splay = 0; }
+
+/** Neutral seated pose (the act system's resting pose), the base for blends. */
+function seatedBase(g: Pose, t: number, ph: number) {
+  g.lean = 0.1; g.yaw = 0; g.sway = 0; g.hp = 0.12; g.hy = 0; g.hr = 0;
+  g.armL.set(-0.17, TY, 0.44); g.armR.set(0.17, TY, 0.44);
+  g.poleL.set(-0.9, -0.6, -0.5); g.poleR.set(0.9, -0.6, -0.5);
+  seatedLegs(g);
+  g.breath = 1 + 0.012 * Math.sin(t * 1.7 + ph);
+}
 
 function hideBook(books: THREE.InstancedMesh, i: number, hide: boolean) {
   books.getMatrixAt(i, _m);
@@ -1194,10 +1222,6 @@ export function createCrowd(room: RoomBuild): Crowd {
   return {
     set(slots, instant) {
       for (let i = 0; i < MAX_SLOTS; i++) agents[i].setOccupant(slots[i] ?? null, instant, now);
-      for (let i = 0; i < MAX_SLOTS; i++) {
-        const st: SlotStatus = slots[i]?.status ?? 'empty';
-        if (st !== 'empty') room.seats[i].kitTarget = 1;
-      }
       if (instant) for (const s of room.seats) { s.kitShown = s.kitTarget; s.lamp.level = s.lamp.target; }
     },
     step(t, dt) {
@@ -1224,10 +1248,10 @@ export function createCrowd(room: RoomBuild): Crowd {
         const a = agents[i];
         // Low tier: the far half of the room animates at half rate.
         if (halfRate && camDist[i] > median && a.mode === 'seated') {
-          (a as unknown as { pendingDt: number }).pendingDt += dt;
+          a.pendingDt += dt;
           if ((frame + i) % 2) continue;
-          const d = (a as unknown as { pendingDt: number }).pendingDt;
-          (a as unknown as { pendingDt: number }).pendingDt = 0;
+          const d = a.pendingDt;
+          a.pendingDt = 0;
           a.update(t, d);
           continue;
         }
