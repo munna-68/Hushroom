@@ -6,20 +6,21 @@ import * as THREE from 'three';
 import { EXPRESSIONS, type Expression } from '../lib/avatars';
 
 /** Head ellipsoid: radius and per-axis scale. Shared with the builder. */
-export const HEAD_R = 0.3;
-export const HEAD_S: [number, number, number] = [1.06, 0.95, 1.0];
+export const HEAD_R = 0.31;
+export const HEAD_S: [number, number, number] = [1.1, 0.9, 0.97];
 const LIFT = 1.012;
+const K = HEAD_R / 0.3; // features below are authored for a 0.3 head
 const PHI_L = 1.7, THETA_0 = 1.0, THETA_L = 1.7;
 const PHI_0 = Math.PI / 2 - PHI_L / 2;
 const CELL = 256;
 
 // Feature layout in head-local units (scaled head, face toward +z).
-const EX = 0.1, EY = -0.045, ERX = 0.034, ERY = 0.047;
-const BY = 0.05, MY = -0.132;
+const EX = 0.094, EY = -0.05, ERX = 0.031, ERY = 0.042;
+const BY = 0.04, MY = -0.142;
 const INK = '#2f2520', IRIS = '#5e3d28', LINE = '#3a2a22', MOUTH = '#7a3b2c', BLUSH = '236,154,102';
 
 export function faceGeometry(): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(HEAD_R * LIFT, 16, 14, PHI_0, PHI_L, THETA_0, THETA_L);
+  const g = new THREE.SphereGeometry(HEAD_R * LIFT, 12, 10, PHI_0, PHI_L, THETA_0, THETA_L);
   g.scale(...HEAD_S);
   return g;
 }
@@ -29,18 +30,19 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
   const kx = CELL / (PHI_L * r * HEAD_S[0]);
   const ky = CELL / (THETA_L * r * HEAD_S[1]);
   // Head-local (x, y) → pixel, through the patch's spherical UVs.
-  const at = (x: number, y: number) => {
+  const at = (x0: number, y0: number) => {
+    const x = x0 * K, y = y0 * K;
     const ys = THREE.MathUtils.clamp(y / (r * HEAD_S[1]), -1, 1);
     const th = Math.acos(ys);
     const ph = Math.acos(THREE.MathUtils.clamp(-x / (r * HEAD_S[0] * Math.sin(th)), -1, 1));
     ctx.setTransform(1, 0, 0, 1, ox + ((ph - PHI_0) / PHI_L) * CELL, oy + ((th - THETA_0) / THETA_L) * CELL);
-    ctx.scale(kx, -ky);
+    ctx.scale(kx * K, -ky * K);
   };
   const stroke = (w: number, c = LINE) => { ctx.lineWidth = w; ctx.strokeStyle = c; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(); };
 
   // Blush.
   for (const sd of [-1, 1]) {
-    at(sd * 0.168, -0.103);
+    at(sd * 0.165, -0.118);
     ctx.scale(1, 0.55);
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 0.05);
     const a = e === 'smile' ? 0.62 : e === 'exhausted' || e === 'sleepy' ? 0.35 : 0.48;
@@ -97,7 +99,7 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
 
   for (const sd of [-1, 1]) {
     switch (e) {
-      case 'focused': eye(sd, { lid: 0.02, tilt: 0.08 }); brow(sd, BY, 0.18, 0.003); break;
+      case 'focused': eye(sd, { lid: 0.02 }); brow(sd, BY + 0.004, -0.06, 0.008); break;
       case 'smile': eye(sd, {}); brow(sd, BY + 0.008, 0, 0.01); break;
       case 'sleepy': eye(sd, { lid: -0.006, tilt: -0.22 }); brow(sd, BY + 0.01, -0.12, 0.004); break;
       case 'blink': shut(sd); brow(sd, BY + 0.004, 0, 0.008); break;
@@ -106,11 +108,11 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
       case 'exhausted': eye(sd, { lid: -0.012, tilt: -0.3 }); brow(sd, BY + 0.012, -0.38, 0.004);
         at(sd * EX, EY - ERY - 0.012); ctx.beginPath(); ctx.moveTo(-0.022, 0); ctx.quadraticCurveTo(0, -0.008, 0.022, 0); stroke(0.005, 'rgba(120,70,60,0.55)');
         break;
-      case 'determined': eye(sd, { lid: 0.03, tilt: 0.28 }); brow(sd, BY - 0.002, 0.5, 0.002, 0.012); break;
+      case 'determined': eye(sd, {}); brow(sd, BY + 0.006, 0.04, 0.009); break;
     }
   }
   switch (e) {
-    case 'focused': mouth(() => { ctx.moveTo(-0.012, 0); ctx.lineTo(0.012, 0); }); break;
+    case 'focused': mouth(() => { ctx.moveTo(-0.013, 0.003); ctx.quadraticCurveTo(0, -0.008, 0.013, 0.003); }); break;
     case 'smile': mouth(() => { ctx.moveTo(-0.02, 0.006); ctx.quadraticCurveTo(0, -0.016, 0.02, 0.006); }); break;
     case 'sleepy': mouth(() => { ctx.moveTo(-0.01, 0); ctx.quadraticCurveTo(0, -0.004, 0.01, 0); }); break;
     case 'blink': mouth(() => { ctx.moveTo(-0.014, 0.004); ctx.quadraticCurveTo(0, -0.01, 0.014, 0.004); }); break;
@@ -120,7 +122,7 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
       break;
     case 'annoyed': mouth(() => { ctx.moveTo(-0.016, -0.004); ctx.quadraticCurveTo(0, 0.01, 0.016, -0.004); }); break;
     case 'exhausted': mouth(() => { ctx.moveTo(-0.018, 0); ctx.bezierCurveTo(-0.008, 0.008, 0.002, -0.008, 0.018, 0.002); }); break;
-    case 'determined': mouth(() => { ctx.moveTo(-0.014, -0.002); ctx.quadraticCurveTo(0, 0.004, 0.014, -0.002); }, 0.009); break;
+    case 'determined': mouth(() => { ctx.moveTo(-0.016, 0.004); ctx.quadraticCurveTo(0, -0.012, 0.016, 0.004); }); break;
   }
 }
 

@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { HAIR, OUTFIT, PANTS, SKIN, type CharacterSpec, type Expression, type HairStyle } from '../lib/avatars';
 import { HEAD_R, HEAD_S, disposeFaceKit, faceKit } from './faceAtlas';
-import { GeoBuilder, capsule, cyl, roundedBox, sphere, torus, type V3 } from './toon';
+import { GeoBuilder, cyl, roundedBox, sphere, torus, type V3 } from './toon';
 
 export const L1 = 0.25, L2 = 0.25;
 export const TORSO_Y = 0.2;
@@ -36,7 +36,7 @@ const REST: Record<BoneName, V3> = {
 };
 
 // Fixed accessory colours sampled from the sheet.
-const ACC = { glasses: '#523e30', phones: '#4c5448', beanie: '#ab5537', clipA: '#dda063', clipB: '#6f7a70', scarf: '#3c5350', bag: '#646f62', strap: '#7a5236' };
+const ACC = { glasses: '#523e30', phones: '#4c5448', beanie: '#8a4630', clipA: '#dda063', clipB: '#6f7a70', scarf: '#3c5350', bag: '#646f62', strap: '#7a5236' };
 const SHOE = '#efe7da', SOLE = '#d6c9b4', STRING = '#f2ead8';
 
 // ---- materials -------------------------------------------------------------
@@ -47,7 +47,7 @@ let mats: CharMats | null = null;
 /** Softer ramp than the room's toon steps: reads as matte clay. */
 export function charMaterials(): CharMats {
   if (mats) return mats;
-  const steps = [104, 150, 200, 236, 252];
+  const steps = [138, 176, 214, 240, 255];
   const data = new Uint8Array(steps.length * 4);
   steps.forEach((v, i) => data.set([v, v, v, 255], i * 4));
   const gradient = new THREE.DataTexture(data, steps.length, 1, THREE.RGBAFormat);
@@ -94,7 +94,9 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const ss = (a: number, b: number, x: number) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const shade = (hex: string, k: number) => '#' + new THREE.Color(hex).multiplyScalar(k).getHexString();
-const SOFT = 0.04;
+const SOFT = 0.045;
+const K = HEAD_R / 0.3;
+const cap = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 3, 8);
 
 /** Hairline height: front fringe → sides → nape, blended by |azimuth| (0 = face). */
 function hairline(az: number, yF: number, yS: number, yB: number, f0 = 0.55, f1 = 1.5) {
@@ -107,12 +109,13 @@ const roll = (s: number) => 0.035 * (1 - ss(0, 0.16, s)); // rounded lip at the 
 type ShellFn = (x: number, y: number, z: number, az: number) => [number, number];
 const HAIR_FN: Record<HairStyle, ShellFn> = {
   crop: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.42 - 0.08 * Math.pow(Math.abs(Math.cos(az * 5.2)), 4), 0.2, -0.32);
-    return [s, 0.075 + 0.05 * Math.max(0, y) + roll(s)];
+    const s = y - hairline(az, 0.32 - 0.08 * Math.pow(Math.abs(Math.cos(az * 5.2)), 4), 0.2, -0.32);
+    return [s, 0.045 + 0.16 * Math.pow(Math.max(0, y), 1.5) + roll(s)];
   },
   swept: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.22 + 0.34 * ss(-0.65, 0.7, az), az < 0 ? -0.18 : 0.18, -0.36);
-    return [s, 0.085 + 0.06 * Math.max(0, y) + roll(s) + 0.03 * ss(0.4, -0.6, az) * ss(-0.1, 0.5, y)];
+    const s = y - hairline(az, 0.14 + 0.48 * ss(-0.7, 0.75, az), az < 0 ? -0.2 : 0.18, -0.36);
+    const part = 0.035 * Math.exp(-((az - 0.62) ** 2) / 0.006) * ss(0.3, 0.8, y);
+    return [s, 0.07 + 0.09 * Math.max(0, y) + roll(s) + 0.07 * ss(0.5, -0.6, az) * ss(-0.1, 0.6, y) - part];
   },
   bob: (_x, y, _z, az) => {
     const s = y - hairline(az, 0.3 - 0.03 * Math.cos(az * 3), -0.74, -0.8, 0.74, 0.88);
@@ -145,24 +148,46 @@ function hp(d: V3, r: number): V3 {
   return [(d[0] / n) * r * HEAD_R * HEAD_S[0], (d[1] / n) * r * HEAD_R * HEAD_S[1], (d[2] / n) * r * HEAD_R * HEAD_S[2]];
 }
 
-/** Closed, smooth shell around the head; uncovered directions tuck inside the skull. */
-function shellGeo(fn: ShellFn, color: (y: number, s: number) => string, ws: number, hs: number, thetaLen: number): THREE.BufferGeometry {
-  let g: THREE.BufferGeometry = new THREE.SphereGeometry(1, ws, hs, Math.PI * 1.5, Math.PI * 2, 0, thetaLen);
-  g.deleteAttribute('uv'); g.deleteAttribute('normal');
-  g = mergeVertices(g); // weld the seam so normals stay smooth at the back
-  const pos = g.attributes.position as THREE.BufferAttribute;
-  const col = new Float32Array(pos.count * 3);
+/**
+ * Closed, smooth shell around the head; uncovered directions tuck inside the skull.
+ * Rows are warped per column so a band of rows always straddles the hairline,
+ * which keeps diagonal and pointed fringes clean instead of stair-stepped.
+ */
+function shellGeo(fn: ShellFn, color: (y: number, s: number) => string, ws: number, hs: number, thetaMax: number): THREE.BufferGeometry {
+  const band = 6, nTop = Math.round((hs - band) * 0.55), nBot = hs - band - nTop, D = 0.14;
+  const pos: number[] = [], idx: number[] = [];
   const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const [s] = fn(x, y, z, Math.atan2(x, z));
-    const r = shellR(fn, x, y, z) * HEAD_R;
-    pos.setXYZ(i, x * r * HEAD_S[0], y * r * HEAD_S[1], z * r * HEAD_S[2]);
-    c.set(color(y, s)).toArray(col, i * 3);
+  for (let j = 0; j <= ws; j++) {
+    const az = -Math.PI + (j / ws) * Math.PI * 2; // seam at the back
+    const sx = Math.sin(az), cz = Math.cos(az);
+    const yl = THREE.MathUtils.clamp(-fn(sx, 0, cz, az)[0], Math.cos(thetaMax) + D, 0.95);
+    const thl = Math.acos(yl), ta = thl - D, tb = Math.min(thetaMax - 0.02, thl + D);
+    for (let i = 0; i <= hs; i++) {
+      const th = i <= nTop ? (ta * i) / nTop : i <= nTop + band ? ta + ((tb - ta) * (i - nTop)) / band : tb + ((thetaMax - tb) * (i - nTop - band)) / nBot;
+      const st = Math.sin(th), x = st * sx, y = Math.cos(th), z = st * cz;
+      const r = shellR(fn, x, y, z) * HEAD_R;
+      pos.push(x * r * HEAD_S[0], y * r * HEAD_S[1], z * r * HEAD_S[2]);
+      if (j < ws && i < hs) {
+        const a0 = j * (hs + 1) + i, b0 = a0 + hs + 1;
+        idx.push(a0, a0 + 1, b0, b0, a0 + 1, b0 + 1);
+      }
+    }
   }
+  let g: THREE.BufferGeometry = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g = mergeVertices(g); // weld the seam and the pole so normals stay smooth
   g.computeVertexNormals();
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  g.setAttribute('outline', new THREE.BufferAttribute(new Float32Array(pos.count).fill(1), 1));
+  // Colours after welding (vertex order changes).
+  const p = g.attributes.position as THREE.BufferAttribute;
+  const out = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i) / HEAD_S[0], y = p.getY(i) / HEAD_S[1], z = p.getZ(i) / HEAD_S[2];
+    const n = Math.hypot(x, y, z) || 1;
+    c.set(color(y / n, fn(x / n, y / n, z / n, Math.atan2(x, z))[0])).toArray(out, i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(out, 3));
+  g.setAttribute('outline', new THREE.BufferAttribute(new Float32Array(p.count).fill(1), 1));
   return g;
 }
 
@@ -200,34 +225,34 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
   const rib = shade(top, 0.86);
 
   // Hips + legs.
-  B.hips.add(roundedBox(0.4, 0.2, 0.3, 0.09, 2), pants, { p: [0, 0.17, 0.03] });
+  B.hips.add(roundedBox(0.4, 0.2, 0.3, 0.09, 1), pants, { p: [0, 0.17, 0.03] });
   for (const [hip, knee] of [['hipL', 'kneeL'], ['hipR', 'kneeR']] as const) {
-    B[hip].add(capsule(0.09, 0.15), pants, { p: [0, -0.12, 0] });
-    B[knee].add(sphere(0.088, 10, 6), pants);
-    B[knee].add(cyl(0.086, 0.094, 0.22, 12), pants, { p: [0, -0.11, 0] });
-    B[knee].add(cyl(0.097, 0.097, 0.03, 12), shade(pants, 0.88), { p: [0, -0.215, 0] });
+    B[hip].add(cap(0.09, 0.15), pants, { p: [0, -0.12, 0] });
+    B[knee].add(sphere(0.088, 8, 5), pants);
+    B[knee].add(cyl(0.086, 0.094, 0.22, 10), pants, { p: [0, -0.11, 0] });
+    B[knee].add(cyl(0.097, 0.097, 0.03, 10), shade(pants, 0.88), { p: [0, -0.215, 0] });
     B[knee].add(roundedBox(0.135, 0.085, 0.2, 0.04, 2), SHOE, { p: [0, -0.272, 0.035] });
     B[knee].add(roundedBox(0.14, 0.03, 0.205, 0.012, 1), SOLE, { p: [0, -0.318, 0.035] });
   }
 
   // Torso.
   const T = B.torso;
-  const lathe = new THREE.LatheGeometry(PROF.map(([r, y]) => new THREE.Vector2(r, y)), 18);
+  const lathe = new THREE.LatheGeometry(PROF.map(([r, y]) => new THREE.Vector2(r, y)), 16);
   T.add(lathe, top, { s: vest ? [1.07, 1, TORSO_Z * 1.1] : [1, 1, TORSO_Z] });
-  T.add(cyl(0.238, 0.232, 0.07, 18), rib, { p: [0, 0.035, 0], s: [1, 1, TORSO_Z] });
+  T.add(cyl(0.238, 0.232, 0.07, 16), rib, { p: [0, 0.035, 0], s: [1, 1, TORSO_Z] });
   const fz = (y: number) => front(y, vest ? TORSO_Z * 1.1 : TORSO_Z);
   switch (spec.outfit) {
     case 'hoodie':
-      T.add(torus(0.125, 0.05, Math.PI * 2, 8, 18), shade(top, 0.94), { p: [0, 0.5, -0.015], r: [Math.PI / 2 + 0.22, 0, 0] });
-      T.add(sphere(0.19, 14, 10), shade(top, 0.9), { p: [0, 0.47, -0.12], s: [1.15, 0.84, 0.62] });
-      T.add(roundedBox(0.27, 0.12, 0.035, 0.03, 2), shade(top, 0.92), { p: [0, 0.13, fz(0.13) + 0.004], r: [-0.06, 0, 0] });
+      T.add(torus(0.125, 0.05, Math.PI * 2, 6, 16), shade(top, 0.94), { p: [0, 0.5, -0.015], r: [Math.PI / 2 + 0.22, 0, 0] });
+      T.add(sphere(0.19, 12, 8), shade(top, 0.9), { p: [0, 0.47, -0.12], s: [1.15, 0.84, 0.62] });
+      T.add(roundedBox(0.27, 0.12, 0.035, 0.03, 1), shade(top, 0.92), { p: [0, 0.13, fz(0.13) + 0.004], r: [-0.06, 0, 0] });
       for (const x of [-0.042, 0.042]) {
         T.add(cyl(0.008, 0.008, 0.13, 5), STRING, { p: [x, 0.39, fz(0.39) + 0.014], r: [0.28, 0, 0] }, 0);
         T.add(sphere(0.012, 6, 4), STRING, { p: [x, 0.325, fz(0.33) + 0.03] }, 0);
       }
       break;
     case 'sweater':
-      T.add(torus(0.115, 0.042, Math.PI * 2, 8, 18), rib, { p: [0, 0.5, 0], r: [Math.PI / 2 + 0.12, 0, 0] });
+      T.add(torus(0.115, 0.042, Math.PI * 2, 6, 16), rib, { p: [0, 0.5, 0], r: [Math.PI / 2 + 0.12, 0, 0] });
       for (const x of [-0.075, 0.075]) T.add(roundedBox(0.05, 0.34, 0.03, 0.014, 1), shade(top, 0.93), { p: [x, 0.27, fz(0.27) - 0.006] }, 0);
       break;
     case 'cardigan':
@@ -246,21 +271,21 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
       }
       break;
     case 'sweatshirt':
-      T.add(torus(0.115, 0.036, Math.PI * 2, 8, 18), rib, { p: [0, 0.5, 0], r: [Math.PI / 2 + 0.12, 0, 0] });
+      T.add(torus(0.115, 0.036, Math.PI * 2, 6, 16), rib, { p: [0, 0.5, 0], r: [Math.PI / 2 + 0.12, 0, 0] });
       T.add(new THREE.ConeGeometry(0.028, 0.05, 3), shade(top, 0.8), { p: [0, 0.445, fz(0.445) + 0.006], r: [0, 0, Math.PI], s: [1, 1, 0.3] }, 0);
       break;
   }
   if (acc.has('scarf')) {
-    T.add(torus(0.135, 0.058, Math.PI * 2, 8, 18), ACC.scarf, { p: [0, 0.5, 0], r: [Math.PI / 2 + 0.12, 0, 0] });
+    T.add(torus(0.135, 0.058, Math.PI * 2, 6, 16), ACC.scarf, { p: [0, 0.5, 0], r: [Math.PI / 2 + 0.12, 0, 0] });
     T.add(roundedBox(0.085, 0.24, 0.035, 0.015, 2), ACC.scarf, { p: [0.07, 0.36, fz(0.36) + 0.045], r: [0.15, 0, 0.12] });
     T.add(roundedBox(0.075, 0.16, 0.03, 0.014, 2), shade(ACC.scarf, 0.9), { p: [-0.03, 0.4, fz(0.4) + 0.05], r: [0.2, 0, -0.18] });
   }
 
   // Arms.
   for (const [sh, el, hd, sd] of [['shoulderL', 'elbowL', 'handL', -1], ['shoulderR', 'elbowR', 'handR', 1]] as const) {
-    B[sh].add(capsule(0.062, L1 - 0.08), sleeve, { p: [0, -L1 / 2 + 0.02, 0] });
-    B[el].add(capsule(0.056, L2 - 0.1), sleeve, { p: [0, -L2 / 2 + 0.03, 0] });
-    B[el].add(cyl(0.06, 0.062, 0.05, 10), shade(sleeve, 0.88), { p: [0, -L2 + 0.075, 0] });
+    B[sh].add(cap(0.062, L1 - 0.08), sleeve, { p: [0, -L1 / 2 + 0.02, 0] });
+    B[el].add(cap(0.056, L2 - 0.1), sleeve, { p: [0, -L2 / 2 + 0.03, 0] });
+    B[el].add(cyl(0.06, 0.062, 0.05, 8), shade(sleeve, 0.88), { p: [0, -L2 + 0.075, 0] });
     if (spec.outfit === 'track') {
       B[sh].add(roundedBox(0.016, L1 - 0.04, 0.016, 0.006, 1), '#f2efe8', { p: [sd * 0.062, -L1 / 2 + 0.01, 0] }, 0);
       B[el].add(roundedBox(0.016, L2 - 0.1, 0.016, 0.006, 1), '#f2efe8', { p: [sd * 0.056, -L2 / 2 + 0.03, 0] }, 0);
@@ -271,17 +296,17 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
 
   // Head.
   const H = B.head;
-  H.add(sphere(HEAD_R, 24, 16), skin, { s: HEAD_S });
-  for (const sd of [-1, 1]) H.add(sphere(0.05, 8, 6), skin, { p: [sd * 0.315, -0.04, 0], s: [0.55, 0.95, 0.85] });
+  H.add(sphere(HEAD_R, 22, 16), skin, { s: HEAD_S });
+  for (const sd of [-1, 1]) H.add(sphere(0.05 * K, 6, 5), skin, { p: [sd * HEAD_R * HEAD_S[0] * 0.985, -0.045 * K, 0], s: [0.55, 0.95, 0.85] });
   const fn = HAIR_FN[spec.hair];
   const hairCol = (y: number) => '#' + new THREE.Color(shade(hair, 0.8)).lerp(new THREE.Color(hair), ss(-0.6, 0.2, y)).getHexString();
   const curly = spec.hair === 'curly';
-  H.add(shellGeo(fn, hairCol, curly ? 28 : 34, curly ? 18 : 22, Math.PI * 0.82), null);
+  H.add(shellGeo(fn, hairCol, curly ? 28 : 32, 20, Math.PI * 0.86), null);
   const beanie = acc.has('beanie');
-  const blob = (d: V3, r: number, rad: number, s: V3 = [1, 1, 1]) => H.add(sphere(rad, 12, 8), hair, { p: hp(d, r), s });
+  const blob = (d: V3, r: number, rad: number, s: V3 = [1, 1, 1]) => H.add(sphere(rad * K, 10, 7), hair, { p: hp(d, r), s });
   switch (spec.hair) {
     case 'crop':
-      if (!beanie) H.add(sphere(0.06, 10, 7), hair, { p: hp([0, 0.92, -0.38], 1.1), r: [-0.7, 0, 0.2], s: [0.8, 1.5, 0.7] });
+      if (!beanie) H.add(sphere(0.06 * K, 8, 6), hair, { p: hp([0, 0.92, -0.38], 1.1), r: [-0.7, 0, 0.2], s: [0.8, 1.5, 0.7] });
       break;
     case 'bun':
       if (!beanie) {
@@ -306,7 +331,7 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
   }
   const hairAt = (d: V3) => { const n = Math.hypot(...d); return shellR(fn, d[0] / n, d[1] / n, d[2] / n); };
   if (beanie) {
-    H.add(shellGeo(beanieFn, (_y, s) => (s < 0.17 ? shade(ACC.beanie, 0.88) : ACC.beanie), 30, 12, Math.PI * 0.62), null);
+    H.add(shellGeo(beanieFn, (_y, s) => (s < 0.17 ? shade(ACC.beanie, 0.88) : ACC.beanie), 30, 14, Math.PI * 0.7), null);
   }
   if (acc.has('clips') && !beanie) {
     [[[0.42, 0.62, 0.66], ACC.clipA, -0.55], [[0.58, 0.5, 0.64], ACC.clipB, -0.75]].forEach(([d, c, rz]) => {
@@ -315,10 +340,10 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
   }
   if (acc.has('glasses')) {
     for (const sd of [-1, 1]) {
-      H.add(torus(0.052, 0.008, Math.PI * 2, 5, 16), ACC.glasses, { p: [sd * 0.1, -0.045, 0.298], r: [0, sd * 0.3, 0] }, 0);
-      H.add(roundedBox(0.012, 0.012, 0.27, 0.005, 1), ACC.glasses, { p: [sd * 0.228, -0.04, 0.15], r: [0, -sd * 0.57, 0] }, 0);
+      H.add(torus(0.058 * K, 0.008, Math.PI * 2, 4, 16), ACC.glasses, { p: [sd * 0.098 * K, -0.058 * K, 0.298 * K], r: [0, sd * 0.3, 0] }, 0);
+      H.add(roundedBox(0.012, 0.012, 0.27 * K, 0.005, 1), ACC.glasses, { p: [sd * 0.228 * K, -0.05 * K, 0.15 * K], r: [0, -sd * 0.57, 0] }, 0);
     }
-    H.add(cyl(0.007, 0.007, 0.05, 5), ACC.glasses, { p: [0, -0.036, 0.31], r: [0, 0, Math.PI / 2] }, 0);
+    H.add(cyl(0.007, 0.007, 0.04 * K, 5), ACC.glasses, { p: [0, -0.046 * K, 0.31 * K], r: [0, 0, Math.PI / 2] }, 0);
   }
   if (acc.has('headphones')) {
     const side = hairAt([1, -0.1, 0]) * HEAD_R * HEAD_S[0] + 0.03;
@@ -334,7 +359,7 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
   if (acc.has('backpack')) {
     const G = B.bag;
     G.add(roundedBox(0.3, 0.34, 0.14, 0.06, 2), ACC.bag);
-    G.add(roundedBox(0.31, 0.13, 0.15, 0.05, 2), shade(ACC.bag, 0.86), { p: [0, 0.11, -0.008] });
+    G.add(roundedBox(0.31, 0.13, 0.15, 0.05, 1), shade(ACC.bag, 0.86), { p: [0, 0.11, -0.008] });
     G.add(roundedBox(0.2, 0.12, 0.05, 0.03, 1), shade(ACC.bag, 0.93), { p: [0, -0.07, -0.08] });
     G.add(roundedBox(0.032, 0.08, 0.012, 0.005, 1), ACC.strap, { p: [0, 0.05, -0.088] }, 0);
     G.add(torus(0.045, 0.012, Math.PI, 4, 10), ACC.strap, { p: [0, 0.17, 0] });

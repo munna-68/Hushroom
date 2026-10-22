@@ -4,8 +4,14 @@ import './styles/tokens.css';
 import './styles/app.css';
 import { App } from './App';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+const root = document.getElementById('root')!;
+// Dev-only character gallery; the whole branch is dropped from production builds.
+if (import.meta.env.DEV && location.pathname === '/dev/characters') {
+  import('./dev/gallery').then((m) => m.mountGallery(root));
+} else {
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}

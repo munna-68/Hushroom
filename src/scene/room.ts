@@ -408,6 +408,7 @@ export function buildRoom(): RoomBuild {
       windowMat.uniforms.uTime.value = now;
     },
     dispose() {
+      reader.dispose();
       group.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.geometry) mesh.geometry.dispose();
