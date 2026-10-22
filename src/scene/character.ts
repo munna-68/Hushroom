@@ -14,8 +14,6 @@ type Act = FocusAct | 'sip' | 'stretch' | 'drink' | 'phone' | 'lean' | 'chairRea
 /** Root height when seated on a chair so the feet touch the floor. */
 export const CHAIR_ROOT_Y = 0.17;
 export { STAND_ROOT_Y };
-/** Continuous focus after which the face turns exhausted. */
-const EXHAUSTED_AFTER = 20 * 60;
 
 interface Arm { shoulder: THREE.Bone; elbow: THREE.Bone; hand: THREE.Bone; side: number }
 
@@ -64,8 +62,6 @@ export class Character {
   private pageT = -1;
   private nextBlink = 0;
   private nextTilt = 0;
-  private lastStatus: Status | null = null;
-  private focusSince = 0;
   private nextSmile = 0;
   private seed: number;
   private rand: () => number;
@@ -168,10 +164,6 @@ export class Character {
     const local = now - this.actStart;
     const TY = 0.565;
     let closed = false;
-    if (this.status !== this.lastStatus) {
-      if (this.status === 'focusing') this.focusSince = now;
-      this.lastStatus = this.status;
-    }
     this.pen.visible = false;
     this.phone.visible = false;
     let mugInHand = false;
@@ -276,14 +268,13 @@ export class Character {
     this.applyPose();
   }
 
-  /** Face for the current status: focus → focused/determined (exhausted after a long stretch), break → smile/sleepy. */
+  /** Face for the current status: focus → focused/determined (both gently content), break → smile/sleepy. */
   private mood(now: number): Expression {
     if (this.chair) {
       if (now > this.nextSmile + 3) this.nextSmile = now + 10 + this.rand() * 20;
       return now > this.nextSmile ? 'smile' : 'focused';
     }
     if (this.status === 'break') return this.act === 'lean' || this.act === 'drink' ? 'sleepy' : 'smile';
-    if (now - this.focusSince > EXHAUSTED_AFTER) return 'exhausted';
     return this.variant.spec.expression === 'determined' ? 'determined' : 'focused';
   }
 

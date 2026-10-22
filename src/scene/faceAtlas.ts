@@ -99,7 +99,7 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
 
   for (const sd of [-1, 1]) {
     switch (e) {
-      case 'focused': eye(sd, { lid: 0.02 }); brow(sd, BY + 0.004, -0.06, 0.008); break;
+      case 'focused': eye(sd, {}); brow(sd, BY + 0.004, 0, 0.008); break;
       case 'smile': eye(sd, {}); brow(sd, BY + 0.008, 0, 0.01); break;
       case 'sleepy': eye(sd, { lid: -0.006, tilt: -0.22 }); brow(sd, BY + 0.01, -0.12, 0.004); break;
       case 'blink': shut(sd); brow(sd, BY + 0.004, 0, 0.008); break;
