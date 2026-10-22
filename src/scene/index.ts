@@ -2,7 +2,7 @@
 // code-split so the entry screen never waits on three.js.
 import * as THREE from 'three';
 import { AVATARS, avatar } from '../lib/avatars';
-import { Character, disposeCharacterCache, type Status } from './character';
+import { Character, CHAIR_ROOT_Y, disposeCharacterCache, type Status } from './character';
 import { buildRoom, type SeatSlot } from './room';
 import { glowPoints } from './ambient';
 import { materials } from './toon';
@@ -193,6 +193,7 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
         c.focusAct = slot.focusAct;
         c.hooks = { tableMug: slot.tableMug, page: slot.page ?? undefined };
         c.setHandMug(slot.handMug);
+        c.root.position.y = CHAIR_ROOT_Y;
         slot.anchor.add(c.root);
         slot.character = c;
       }

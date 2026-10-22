@@ -14,9 +14,11 @@ const DARK = '#22151a';
 const L1 = 0.25, L2 = 0.25;
 export const SHOULDER_Y = 0.44;
 export const BODY_Y = 0.2;
+/** Root height when seated on a chair so the feet touch the floor. */
+export const CHAIR_ROOT_Y = 0.17;
 export const HEAD_Y = 0.74;
 
-interface VariantGeo { legsCross: THREE.BufferGeometry; legsChair: THREE.BufferGeometry; body: THREE.BufferGeometry; head: THREE.BufferGeometry; eyes: THREE.BufferGeometry; closed: THREE.BufferGeometry; upper: THREE.BufferGeometry; fore: THREE.BufferGeometry }
+interface VariantGeo { legsChair: THREE.BufferGeometry; body: THREE.BufferGeometry; head: THREE.BufferGeometry; eyes: THREE.BufferGeometry; closed: THREE.BufferGeometry; upper: THREE.BufferGeometry; fore: THREE.BufferGeometry }
 const cache = new Map<number, VariantGeo>();
 let itemGeo: { pen: THREE.BufferGeometry; phone: THREE.BufferGeometry } | null = null;
 
@@ -79,17 +81,13 @@ function buildVariant(v: AvatarVariant): VariantGeo {
   const pants = PANTS[v.id % PANTS.length];
   const shoe = '#efe6d6';
 
-  const legs = (chair: boolean) => {
+  const legs = () => {
     const b = new GeoBuilder();
     [-1, 1].forEach((sd) => {
-      if (chair) {
-        b.add(capsule(0.085, 0.22), pants, { p: [sd * 0.1, 0.06, 0.16], r: [Math.PI / 2, 0, 0] });
-        b.add(capsule(0.075, 0.2), pants, { p: [sd * 0.11, -0.12, 0.3] });
-        b.add(roundedBox(0.12, 0.08, 0.17, 0.035), shoe, { p: [sd * 0.11, -0.28, 0.34] });
-      } else {
-        b.add(capsule(0.085, 0.24), pants, { p: [sd * 0.13, 0.04, 0.12], r: [0, -sd * 0.42, sd * 1.25] });
-        b.add(roundedBox(0.11, 0.08, 0.16, 0.035), shoe, { p: [sd * 0.08, 0.03, 0.26], r: [0, -sd * 0.6, 0] });
-      }
+      // Thigh along the seat, shin hanging to the floor (root sits at CHAIR_ROOT_Y).
+      b.add(capsule(0.085, 0.26), pants, { p: [sd * 0.1, 0.17, 0.17], r: [Math.PI / 2, 0, 0] });
+      b.add(capsule(0.075, 0.14), pants, { p: [sd * 0.11, 0.03, 0.34] });
+      b.add(roundedBox(0.12, 0.08, 0.17, 0.035), shoe, { p: [sd * 0.11, -0.13, 0.38] });
     });
     return b.build();
   };
@@ -148,7 +146,7 @@ function buildVariant(v: AvatarVariant): VariantGeo {
   fb.add(sphere(0.052, 10, 8), v.skin, { p: [0, -L2, 0] });
   const fore = fb.build();
 
-  const out = { legsCross: legs(false), legsChair: legs(true), body, head, eyes, closed, upper, fore };
+  const out = { legsChair: legs(), body, head, eyes, closed, upper, fore };
   cache.set(v.id, out);
   return out;
 }
@@ -239,7 +237,7 @@ export class Character {
     this.rand = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 10000) / 10000; };
     const g = buildVariant(v);
     const m = materials();
-    this.root.add(toonMesh(this.chair ? g.legsChair : g.legsCross, { cast: true }));
+    this.root.add(toonMesh(g.legsChair, { cast: true }));
     this.body.position.set(0, BODY_Y, 0);
     this.root.add(this.body);
     this.body.add(toonMesh(g.body, { cast: true }));
@@ -386,16 +384,16 @@ export class Character {
         closed = Math.sin(t * 0.5) > 0.6;
         break;
       case 'chairRead': {
-        this.tL.set(-0.13, 0.62, 0.36); this.tR.set(0.13, 0.62, 0.36);
+        this.tL.set(-0.13, 0.42, 0.34); this.tR.set(0.13, 0.42, 0.34);
         if (this.pageT < 0 && now > this.nextPage) { this.pageT = 0; this.nextPage = now + 12 + this.rand() * 15; }
         if (this.pageT >= 0) {
           this.pageT += dt / 1.2;
           const p = Math.min(1, this.pageT);
-          this.tR.set(0.13 - p * 0.2, 0.62 + Math.sin(p * Math.PI) * 0.06, 0.38);
+          this.tR.set(0.13 - p * 0.2, 0.42 + Math.sin(p * Math.PI) * 0.06, 0.36);
           if (this.hooks.page) this.hooks.page.rotation.y = -p * Math.PI;
           if (this.pageT >= 1) { this.pageT = -1; if (this.hooks.page) this.hooks.page.rotation.y = 0; }
         }
-        this.leanT = -0.05; this.hpT = 0.32; this.hyT = 0.06 * Math.sin(t * 0.6);
+        this.leanT = -0.05; this.hpT = 0.42; this.hyT = 0.06 * Math.sin(t * 0.6);
         break;
       }
       default:

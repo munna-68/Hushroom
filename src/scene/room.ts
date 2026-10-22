@@ -2,13 +2,13 @@
 // per-seat prop sets, the armchair reader and the sleeping cat.
 import * as THREE from 'three';
 import { avatar } from '../lib/avatars';
-import { Character, type FocusAct } from './character';
+import { Character, CHAIR_ROOT_Y, type FocusAct } from './character';
 import {
   GeoBuilder, blobShadow, capsule, cyl, glowSprite, lightPool, materials, rng, roundedBox, sphere, toonMesh, torus,
 } from './toon';
 import { rainWindowMaterial } from './ambient';
 
-export const TABLE_TOP = 0.52;
+export const TABLE_TOP = 0.69;
 const SEAT_X = [-2.2, -1.1, 0, 1.1, 2.2];
 const SEAT_Z = 0.95;
 const FOCUS_ACTS: FocusAct[] = ['write', 'read', 'type', 'read', 'write', 'type', 'write', 'read', 'type', 'write'];
@@ -182,7 +182,7 @@ function staticRoom(): { geo: THREE.BufferGeometry; glowGeo: THREE.BufferGeometr
   // Long low table.
   b.add(roundedBox(5.8, 0.09, 1.3, 0.04), '#b97c4c', { p: [0, TABLE_TOP - 0.045, 0] });
   b.add(roundedBox(5.7, 0.05, 1.2, 0.02), '#8f5a36', { p: [0, TABLE_TOP - 0.11, 0] }, 0);
-  [[-2.6, -0.5], [2.6, -0.5], [-2.6, 0.5], [2.6, 0.5], [0, -0.5], [0, 0.5]].forEach(([x, z]) => b.add(roundedBox(0.14, 0.4, 0.14, 0.04), WOOD_DARK, { p: [x, 0.22, z] }));
+  [[-2.6, -0.5], [2.6, -0.5], [-2.6, 0.5], [2.6, 0.5], [0, -0.5], [0, 0.5]].forEach(([x, z]) => b.add(roundedBox(0.14, TABLE_TOP - 0.12, 0.14, 0.04), WOOD_DARK, { p: [x, (TABLE_TOP - 0.12) / 2, z] }));
   // Table lamps (shade glow is unlit).
   [-1.65, 1.65].forEach((x) => {
     b.add(cyl(0.12, 0.14, 0.04, 16), '#e7d9bd', { p: [x, TABLE_TOP + 0.02, 0] });
@@ -249,11 +249,16 @@ function staticRoom(): { geo: THREE.BufferGeometry; glowGeo: THREE.BufferGeometr
   b.add(cyl(0.025, 0.025, 1.75, 8), '#2f3d4f', { p: [-5.15, 0.9, 0.55] });
   b.add(new THREE.CylinderGeometry(0.16, 0.3, 0.32, 18, 1, true), '#e7d9bd', { p: [-5.15, 1.88, 0.55] });
   u.add(cyl(0.155, 0.29, 0.31, 18), '#ffd79a', { p: [-5.15, 1.88, 0.55] }, 0);
-  // Cushions around the table.
+  // Wooden chairs with coloured seat pads around the table.
   for (let i = 0; i < 10; i++) {
-    const { x, z } = seatXZ(i);
-    b.add(sphere(0.44, 18, 10), CUSHIONS[i], { p: [x, 0.11, z], s: [1, 0.25, 1] });
-    b.add(sphere(0.035, 6, 4), new THREE.Color(CUSHIONS[i]).multiplyScalar(0.8), { p: [x, 0.215, z] }, 0);
+    const { x, z, rotY } = seatXZ(i);
+    const ch = new GeoBuilder();
+    ch.add(roundedBox(0.5, 0.06, 0.46, 0.03), WOOD_DARK, { p: [0, 0.2, 0.02] });
+    ch.add(roundedBox(0.44, 0.05, 0.4, 0.025), CUSHIONS[i], { p: [0, 0.245, 0.02] });
+    [[-0.2, -0.17], [0.2, -0.17], [-0.2, 0.2], [0.2, 0.2]].forEach(([cx, cz]) => ch.add(cyl(0.025, 0.025, 0.2, 8), WOOD_DARK, { p: [cx, 0.1, cz] }));
+    [-0.2, 0.2].forEach((cx) => ch.add(cyl(0.022, 0.022, 0.36, 8), WOOD_DARK, { p: [cx, 0.4, -0.2] }));
+    ch.add(roundedBox(0.48, 0.14, 0.04, 0.02), WOOD_DARK, { p: [0, 0.52, -0.2] });
+    b.add(ch.build(), null, { p: [x, 0, z], r: [0, rotY, 0] });
   }
   return { geo: b.build(), glowGeo: u.build() };
 }
@@ -343,7 +348,7 @@ export function buildRoom(): RoomBuild {
     props.visible = false;
     anchor.add(props);
     const emptyGlow = lightPool('#ffcf86', 1.1, 1.1, 0.16);
-    emptyGlow.position.set(0, 0.23, 0);
+    emptyGlow.position.set(0, 0.28, 0);
     anchor.add(emptyGlow);
     const meRing = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 40), new THREE.MeshBasicMaterial({ color: '#7fe0d0', transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
     meRing.rotation.x = -Math.PI / 2;
@@ -352,13 +357,14 @@ export function buildRoom(): RoomBuild {
     anchor.add(meRing);
     anchor.updateMatrixWorld(true);
     const mugWorld = new THREE.Vector3(mx, TABLE_TOP + 0.13, 0.42).applyMatrix4(anchor.matrixWorld);
-    const headWorld = new THREE.Vector3(0, 1.38, 0.05).applyMatrix4(anchor.matrixWorld);
+    const headWorld = new THREE.Vector3(0, 1.38 + CHAIR_ROOT_Y, 0.05).applyMatrix4(anchor.matrixWorld);
     seats.push({ index: i, anchor, props, tableMug, handMug, page: p.pagePivot, focusAct: act, emptyGlow, meRing, character: null, mugWorld, headWorld });
   }
 
   // Armchair reader — always present, part of the room's life.
   const reader = new Character(avatar(4), { chair: true, seed: 991 });
-  reader.root.position.set(-4.2, 0.3, 1.55);
+  // Seated on the cushion (top ≈0.56) a little forward so the shins hang over the front edge.
+  reader.root.position.set(-4.2 + Math.sin(0.75) * 0.14, 0.38, 1.55 + Math.cos(0.75) * 0.14);
   reader.root.rotation.y = 0.75;
   const rbook = new THREE.Group();
   const rb = new GeoBuilder()
@@ -373,8 +379,8 @@ export function buildRoom(): RoomBuild {
   rbook.add(rpagePivot);
   const rcover = new THREE.Mesh(new GeoBuilder().add(roundedBox(0.18, 0.26, 0.015, 0.006, 1), '#33507a', { p: [0.09, 0, -0.012], r: [0, -0.25, 0] }).build(), m.toon);
   rbook.add(rcover);
-  rbook.position.set(0, 0.68, 0.4);
-  rbook.rotation.set(-0.75, Math.PI, 0);
+  rbook.position.set(0, 0.47, 0.38);
+  rbook.rotation.set(-1.0, Math.PI, 0);
   reader.root.add(rbook);
   reader.hooks.page = rpagePivot;
   group.add(reader.root);
