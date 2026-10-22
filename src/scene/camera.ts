@@ -8,8 +8,8 @@ const lerp = THREE.MathUtils.lerp;
 const clamp = THREE.MathUtils.clamp;
 
 /** Default framings; t = 0 portrait, 1 landscape. Tuned against the reference images. */
-const PORT = { az: deg(34), pitch: deg(43), fov: 44, target: new THREE.Vector3(0.55, 0.55, 0.35), halfW: 2.05, halfH: 2.9 };
-const LAND = { az: deg(35), pitch: deg(40), fov: 31, target: new THREE.Vector3(-0.35, 0.2, 0.15), halfW: 6.7, halfH: 3.45 };
+const PORT = { az: deg(60), pitch: deg(45), fov: 44, target: new THREE.Vector3(0.35, 0.55, -0.1), halfW: 1.95, halfH: 3.0 };
+const LAND = { az: deg(36), pitch: deg(40), fov: 40, target: new THREE.Vector3(-0.3, 0.5, -0.2), halfW: 5.5, halfH: 3.1 };
 
 export const LIMITS = { yaw: deg(25), pitchMin: deg(28), pitchMax: deg(52), zoomMin: 0.85, zoomMax: 1.3 };
 

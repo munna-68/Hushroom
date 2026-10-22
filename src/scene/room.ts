@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { EnvBuilder } from './envGeo';
 import { envMaterial, lightRig, N_LAMPS, PENDANT_LAMP, WINDOW_LAMP, stUniforms } from './envMaterial';
 import { buildWindowView, type WindowView } from './windowView';
-import { BOOKS, backpackGeo, buildKit, buildLamp, chairGeo, mugGeo, type LampInfo } from './props';
-import { capsule, cyl, materials, rng, roundedBox, sphere, torus, type V3 } from './toon';
+import { backpackGeo, buildKit, buildLamp, chairGeo, mugGeo, type LampInfo } from './props';
+import { cyl, materials, rng, roundedBox, sphere, torus, type V3 } from './toon';
 import type { FocusAct, PageHook } from './character';
 import type { Atmo } from './atmosphere';
 import type { TierSettings } from './quality';
@@ -20,7 +20,7 @@ import {
 const OAK = '#c07a40';
 const OAK_DARK = '#8a522c';
 const OAK_DEEP = '#5e3a24';
-const TEAL_WALL = '#2d5d5c';
+const TEAL_WALL = '#3a6664';
 const TEAL_PANEL = '#2c6462';
 const CREAM_WALL = '#e9d4ad';
 const TERRA = '#bf6342';
@@ -52,6 +52,8 @@ export interface RoomBuild {
   blobs: THREE.InstancedMesh;
   update(t: number, dt: number, atmo: Atmo): void;
   setQuality(s: TierSettings): void;
+  /** Pixels per world unit at distance 1 (point sprite sizing). */
+  setPx(px: number): void;
   dispose(): void;
 }
 
@@ -68,7 +70,6 @@ function aim(dir: THREE.Vector3, roll = 0): V3 {
   return [_e.x, _e.y, _e.z];
 }
 const lathe = (pts: [number, number][], seg = 16) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), seg);
-const shade = (hex: string, k: number) => '#' + new THREE.Color(hex).multiplyScalar(k).getHexString();
 
 interface PlantOpts { pot: string; potR: number; potH: number; leaves: number; height: number; spread: number; leaf: number; y0?: number; greens?: string[]; seed: number; droop?: number }
 
@@ -121,8 +122,8 @@ function buildShell(): THREE.BufferGeometry {
   const b = new EnvBuilder();
   const r = rng(42);
   // Floor: dark underlay showing through the plank seams, then staggered oak planks.
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + 0.6, 0.04, WELL.z - WALL_Z + 0.3), '#3a2216', { p: [(WALL_X + FLOOR_X1) / 2, -0.02, (WALL_Z + WELL.z) / 2] });
-  b.add(new THREE.BoxGeometry(WELL.x - WALL_X + 0.3, 0.04, FLOOR_Z1 - WELL.z + 0.01), '#3a2216', { p: [(WALL_X + WELL.x) / 2, -0.02, (WELL.z + FLOOR_Z1) / 2] });
+  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + 0.6, 0.04, WELL.z - WALL_Z + 0.3), '#3a2216', { p: [(WALL_X + FLOOR_X1) / 2, -0.035, (WALL_Z + WELL.z) / 2] });
+  b.add(new THREE.BoxGeometry(WELL.x - WALL_X + 0.3, 0.04, FLOOR_Z1 - WELL.z + 0.01), '#3a2216', { p: [(WALL_X + WELL.x) / 2, -0.035, (WELL.z + FLOOR_Z1) / 2] });
   const PW = 0.34;
   for (let z = WALL_Z; z < FLOOR_Z1 - 0.01; z += PW) {
     const zc = z + PW / 2;
@@ -140,9 +141,9 @@ function buildShell(): THREE.BufferGeometry {
     }
   }
   // Rug under the table: teal with a thin gold double border.
-  const RW = 7.8, RD = 4.7;
-  b.add(roundedBox(RW, 0.024, RD, 0.01, 1), '#2a6563', { p: [0, 0.012, 0] });
-  b.add(roundedBox(RW - 0.06, 0.026, RD - 0.06, 0.01, 1), '#2f6c69', { p: [0, 0.013, 0] });
+  const RW = 7.4, RD = 4.3;
+  b.add(roundedBox(RW, 0.024, RD, 0.01, 1), '#244f4c', { p: [0, 0.012, 0] });
+  b.add(roundedBox(RW - 0.06, 0.026, RD - 0.06, 0.01, 1), '#2a5c58', { p: [0, 0.013, 0] });
   for (const inset of [0.2, 0.29]) {
     const w = RW - inset * 2, d = RD - inset * 2, t = 0.028;
     b.add(new THREE.BoxGeometry(w, 0.004, t), '#c9a457', { p: [0, 0.027, d / 2] });
@@ -151,9 +152,9 @@ function buildShell(): THREE.BufferGeometry {
     b.add(new THREE.BoxGeometry(t, 0.004, d), '#c9a457', { p: [-w / 2, 0.027, 0] });
   }
   // Round rug under the coffee table: teal ring around cream.
-  b.add(cyl(1.42, 1.42, 0.02, 48), '#2f6d6a', { p: [COFFEE.x, 0.01, COFFEE.z + 0.15] });
-  b.add(cyl(1.3, 1.3, 0.024, 48), '#eadcc2', { p: [COFFEE.x, 0.012, COFFEE.z + 0.15] });
-  b.add(new THREE.TorusGeometry(1.18, 0.012, 3, 48), '#cdb994', { p: [COFFEE.x, 0.025, COFFEE.z + 0.15], r: [Math.PI / 2, 0, 0] });
+  b.add(cyl(1.22, 1.22, 0.02, 48), '#2f6d6a', { p: [COFFEE.x, 0.01, COFFEE.z + 0.35] });
+  b.add(cyl(1.1, 1.1, 0.024, 48), '#e6d6ba', { p: [COFFEE.x, 0.012, COFFEE.z + 0.35] });
+  b.add(new THREE.TorusGeometry(0.98, 0.012, 3, 48), '#cdb994', { p: [COFFEE.x, 0.025, COFFEE.z + 0.35], r: [Math.PI / 2, 0, 0] });
 
   const T = 0.3;
   // Left wall (window wall): cream plaster with the window cut out. Shape x = −world z.
@@ -194,9 +195,10 @@ function buildShell(): THREE.BufferGeometry {
   b.add(roundedBox(0.09, 0.06, FLOOR_Z1 - COUNTER.z1, 0.02, 1), OAK, { p: [WALL_X + 0.045, 0.98, (FLOOR_Z1 + COUNTER.z1) / 2] });
   b.add(roundedBox(0.06, 0.14, FLOOR_Z1 - WALL_Z, 0.015, 1), '#6e4128', { p: [WALL_X + 0.03, 0.07, (FLOOR_Z1 + WALL_Z) / 2] });
   // Pilaster on the back wall left of the door.
-  b.add(roundedBox(0.36, WALL_H - 0.4, 0.14, 0.03, 1), '#e7d3b0', { p: [1.62, (WALL_H - 0.4) / 2, WALL_Z + 0.07] });
-  b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [1.62, 0.06, WALL_Z + 0.1] });
-  b.add(roundedBox(0.44, 0.1, 0.2, 0.03, 1), '#e2cba4', { p: [1.62, WH + 0.04, WALL_Z + 0.1] });
+  const PX = 1.0;
+  b.add(roundedBox(0.36, WALL_H - 0.4, 0.14, 0.03, 1), '#e7d3b0', { p: [PX, (WALL_H - 0.4) / 2, WALL_Z + 0.07] });
+  b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, 0.06, WALL_Z + 0.1] });
+  b.add(roundedBox(0.44, 0.1, 0.2, 0.03, 1), '#e2cba4', { p: [PX, WH + 0.04, WALL_Z + 0.1] });
   // Hallway behind the door.
   b.add(new THREE.BoxGeometry(DOOR.w + 0.6, DOOR.h + 0.4, 1.6), '#241a17', { p: [DOOR.x, DOOR.h / 2, WALL_Z - T - 0.8] });
 
@@ -265,8 +267,8 @@ function buildWindowFrame(b: EnvBuilder) {
   b.add(roundedBox(0.06, y1 - y0 + 0.16, 0.16, 0.03, 1), F, { p: [WALL_X + 0.03, yc + 0.04, z0 - 0.08] });
   b.add(roundedBox(0.06, y1 - y0 + 0.16, 0.16, 0.03, 1), F, { p: [WALL_X + 0.03, yc + 0.04, z1 + 0.08] });
   // Mullions in the glass plane.
-  for (let c = 1; c < cols; c++) b.add(roundedBox(0.08, y1 - y0, 0.075, 0.02, 1), F, { p: [x, yc, z0 + ((z1 - z0) * c) / cols] });
-  for (let rr = 1; rr < rows; rr++) b.add(roundedBox(0.08, 0.075, z1 - z0, 0.02, 1), F, { p: [x, y0 + ((y1 - y0) * rr) / rows, zc] });
+  for (let c = 1; c < cols; c++) b.add(roundedBox(0.09, y1 - y0, 0.1, 0.025, 1), F, { p: [x, yc, z0 + ((z1 - z0) * c) / cols] });
+  for (let rr = 1; rr < rows; rr++) b.add(roundedBox(0.09, 0.09, z1 - z0, 0.025, 1), F, { p: [x, y0 + ((y1 - y0) * rr) / rows, zc] });
   // Inner frame lining the opening.
   b.add(new THREE.BoxGeometry(0.1, 0.06, z1 - z0), F, { p: [x, y0 + 0.03, zc] });
   b.add(new THREE.BoxGeometry(0.1, 0.06, z1 - z0), F, { p: [x, y1 - 0.03, zc] });
@@ -371,21 +373,24 @@ function buildBooks(levels: number[]): THREE.InstancedMesh {
 function buildSofaCorner(b: EnvBuilder) {
   const { x, z, len } = SOFA;
   const S = '#b9603f', S2 = '#c76c49', S3 = '#a9553a';
-  b.add(roundedBox(len, 0.26, 0.94, 0.08, 2), S3, { p: [x, 0.17, z] }, { ao: 0.3 });
-  for (let k = 0; k < 3; k++) b.add(roundedBox(len / 3 - 0.06, 0.15, 0.74, 0.07, 2), S2, { p: [x - len / 3 + k * (len / 3), 0.36, z - 0.06] });
-  b.add(roundedBox(len, 0.62, 0.26, 0.1, 2), S, { p: [x, 0.47, z + 0.36] }, { ao: 0.25 });
-  for (let k = 0; k < 3; k++) b.add(roundedBox(len / 3 - 0.08, 0.42, 0.2, 0.09, 2), S2, { p: [x - len / 3 + k * (len / 3), 0.6, z + 0.2], r: [-0.18, 0, 0] });
-  for (const sd of [-1, 1]) b.add(roundedBox(0.26, 0.56, 0.96, 0.11, 2), S, { p: [x + sd * (len / 2 - 0.1), 0.3, z] }, { ao: 0.3 });
-  for (const lx of [-len / 2 + 0.12, len / 2 - 0.12]) for (const lz of [-0.36, 0.36]) b.add(cyl(0.035, 0.03, 0.06, 8), OAK_DEEP, { p: [x + lx, 0.03, z + lz] });
-  // Teal cushion at the head end, cream pillow at the far arm, knit throw over the back.
-  b.add(roundedBox(0.42, 0.38, 0.15, 0.07, 2), '#2f6f69', { p: [x - len / 2 + 0.42, 0.6, z + 0.12], r: [-0.3, 0.25, 0.05] });
-  b.add(roundedBox(0.36, 0.32, 0.13, 0.06, 2), '#eadfc8', { p: [x + len / 2 - 0.36, 0.58, z + 0.14], r: [-0.3, -0.3, -0.05] });
+  // Built facing −z with the back at +z, then turned round so it faces the camera side.
+  const sb = new EnvBuilder();
+  sb.add(roundedBox(len, 0.26, 0.94, 0.08, 2), S3, { p: [0, 0.17, 0] }, { ao: 0.3 });
+  for (let k = 0; k < 3; k++) sb.add(roundedBox(len / 3 - 0.06, 0.15, 0.74, 0.07, 2), S2, { p: [-len / 3 + k * (len / 3), 0.36, -0.06] });
+  sb.add(roundedBox(len, 0.62, 0.26, 0.1, 2), S, { p: [0, 0.47, 0.36] }, { ao: 0.25 });
+  for (let k = 0; k < 3; k++) sb.add(roundedBox(len / 3 - 0.08, 0.42, 0.2, 0.09, 2), S2, { p: [-len / 3 + k * (len / 3), 0.6, 0.2], r: [-0.18, 0, 0] });
+  for (const sd of [-1, 1]) sb.add(roundedBox(0.26, 0.56, 0.96, 0.11, 2), S, { p: [sd * (len / 2 - 0.1), 0.3, 0] }, { ao: 0.3 });
+  for (const lx of [-len / 2 + 0.12, len / 2 - 0.12]) for (const lz of [-0.36, 0.36]) sb.add(cyl(0.035, 0.03, 0.06, 8), OAK_DEEP, { p: [lx, 0.03, lz] });
+  // Teal cushion at the head end, cream pillow at the far arm, knit throw over the back and arm.
+  sb.add(roundedBox(0.42, 0.38, 0.15, 0.07, 2), '#2f6f69', { p: [len / 2 - 0.42, 0.6, 0.12], r: [-0.3, -0.25, -0.05] });
+  sb.add(roundedBox(0.36, 0.32, 0.13, 0.06, 2), '#eadfc8', { p: [-len / 2 + 0.38, 0.58, 0.14], r: [-0.3, 0.3, 0.05] });
   const th = '#ece2cc';
-  b.add(roundedBox(0.62, 0.05, 0.36, 0.02, 1), th, { p: [x + 0.55, 0.8, z + 0.38], r: [0.1, 0, 0] });
-  b.add(roundedBox(0.62, 0.42, 0.05, 0.02, 1), th, { p: [x + 0.55, 0.6, z + 0.56] });
-  b.add(roundedBox(0.62, 0.28, 0.05, 0.02, 1), th, { p: [x + 0.55, 0.66, z + 0.2], r: [-0.25, 0, 0] });
-  for (let k = 0; k < 6; k++) b.add(new THREE.BoxGeometry(0.012, 0.42, 0.054), '#d8ccb2', { p: [x + 0.3 + k * 0.1, 0.6, z + 0.56] });
-  for (let k = 0; k < 5; k++) b.add(cyl(0.012, 0.012, 0.06, 5), '#e4d8bf', { p: [x + 0.3 + k * 0.12, 0.37, z + 0.585] });
+  sb.add(roundedBox(0.62, 0.05, 0.36, 0.02, 1), th, { p: [-0.55, 0.8, 0.38], r: [0.1, 0, 0] });
+  sb.add(roundedBox(0.62, 0.42, 0.05, 0.02, 1), th, { p: [-0.55, 0.6, 0.56] });
+  sb.add(roundedBox(0.62, 0.28, 0.05, 0.02, 1), th, { p: [-0.55, 0.66, 0.2], r: [-0.25, 0, 0] });
+  for (let k = 0; k < 6; k++) sb.add(new THREE.BoxGeometry(0.012, 0.42, 0.054), '#d8ccb2', { p: [-0.8 + k * 0.1, 0.6, 0.56] });
+  for (let k = 0; k < 5; k++) sb.add(cyl(0.012, 0.012, 0.06, 5), '#e4d8bf', { p: [-0.8 + k * 0.12, 0.37, 0.585] });
+  b.add(sb.build(), null, { p: [x, 0, z], r: [0, Math.PI, 0] });
   // Coffee table with a plant and a closed teal book.
   const { x: cx, z: cz, r: cr } = COFFEE;
   b.add(cyl(cr, cr, 0.05, 32), '#c2804a', { p: [cx, 0.42, cz] });
@@ -416,8 +421,8 @@ function buildBalustrade(b: EnvBuilder) {
       b.add(roundedBox(0.16, 0.06, 0.16, 0.03, 1), W, { p: [px, 1.12, pz] });
     }
   };
-  rail(WELL.x + 0.06, WELL.z + 0.06, WELL.x + 0.06, 2.4);
-  rail(WELL.x + 0.06, 2.4, WELL.x + 0.06, FLOOR_Z1);
+  rail(WELL.x + 0.06, WELL.z + 0.06, WELL.x + 0.06, 2.6);
+  rail(WELL.x + 0.06, 2.6, WELL.x + 0.06, FLOOR_Z1);
   rail(WELL.x + 0.06, WELL.z + 0.06, FLOOR_X1, WELL.z + 0.06);
 }
 
@@ -477,14 +482,14 @@ export function buildRoom(): RoomBuild {
   buildBalustrade(fb);
   buildDoorCasing(fb);
   buildPendant(fb);
-  frame(fb, 0.78, 0.6, [-1.05, 2.45, WALL_Z], 0, 'hills');
-  frame(fb, 0.56, 0.72, [0.1, 2.32, WALL_Z], 0, 'sunset');
-  frame(fb, 0.6, 0.76, [5.05, 2.4, WALL_Z], 0, 'lake');
-  plant(fb, 2.05, WALL_Z + 0.42, { pot: '#efe8dc', potR: 0.2, potH: 0.36, leaves: 22, height: 1.25, spread: 0.5, leaf: 0.16, seed: 3 });
-  plant(fb, 4.42, WALL_Z + 0.45, { pot: TERRA, potR: 0.17, potH: 0.3, leaves: 18, height: 0.9, spread: 0.65, leaf: 0.15, seed: 4 });
-  plant(fb, WALL_X + 0.42, 5.1, { pot: TERRA, potR: 0.18, potH: 0.3, leaves: 18, height: 0.85, spread: 0.7, leaf: 0.15, seed: 6 });
-  plant(fb, WELL.x - 0.45, 4.6, { pot: '#efe8dc', potR: 0.17, potH: 0.3, leaves: 16, height: 0.7, spread: 0.8, leaf: 0.15, seed: 8, greens: ['#7fae5a', '#6a9a4c', '#8fbb66'] });
-  plant(fb, -2.4, WALL_Z + 0.45, { pot: TERRA, potR: 0.15, potH: 0.26, leaves: 14, height: 0.8, spread: 0.6, leaf: 0.14, seed: 12 });
+  frame(fb, 0.82, 0.64, [-1.15, 2.4, WALL_Z], 0, 'hills');
+  frame(fb, 0.6, 0.76, [0.05, 2.3, WALL_Z], 0, 'sunset');
+  frame(fb, 0.62, 0.8, [4.45, 2.35, WALL_Z], 0, 'lake');
+  plant(fb, 1.48, WALL_Z + 0.42, { pot: '#efe8dc', potR: 0.2, potH: 0.36, leaves: 22, height: 1.25, spread: 0.5, leaf: 0.16, seed: 3 });
+  plant(fb, 3.72, WALL_Z + 0.45, { pot: TERRA, potR: 0.17, potH: 0.3, leaves: 18, height: 0.9, spread: 0.65, leaf: 0.15, seed: 4 });
+  plant(fb, WALL_X + 0.45, 4.15, { pot: TERRA, potR: 0.18, potH: 0.3, leaves: 18, height: 0.85, spread: 0.7, leaf: 0.15, seed: 6 });
+  plant(fb, WELL.x - 0.4, 2.9, { pot: '#efe8dc', potR: 0.17, potH: 0.3, leaves: 16, height: 0.7, spread: 0.8, leaf: 0.15, seed: 8, greens: ['#7fae5a', '#6a9a4c', '#8fbb66'] });
+  plant(fb, -2.6, WALL_Z + 0.45, { pot: TERRA, potR: 0.15, potH: 0.26, leaves: 14, height: 0.8, spread: 0.6, leaf: 0.14, seed: 12 });
 
   // Seat lamps (bodies in the furniture mesh; shades glow with the lamp level).
   const seatsLamp: (LampInfo & { world: THREE.Vector3; yaw: number })[] = [];
@@ -640,8 +645,8 @@ export function buildRoom(): RoomBuild {
     ...STOOLS.map(([x, z]): [number, number, number, number, number] => [x, z, 0.6, 0.6, 0.35]),
     [WALL_X + 0.4, (COUNTER.z0 + COUNTER.z1) / 2, 1.0, COUNTER.z1 - COUNTER.z0 + 0.4, 0.3],
     [WALL_X + 0.35, SHELF.z0 + 1.5, 0.9, 3.4, 0.3],
-    [2.05, WALL_Z + 0.42, 0.7, 0.7, 0.35], [4.42, WALL_Z + 0.45, 0.6, 0.6, 0.35], [WALL_X + 0.42, 5.1, 0.6, 0.6, 0.35],
-    [WELL.x - 0.45, 4.6, 0.6, 0.6, 0.35], [-2.4, WALL_Z + 0.45, 0.55, 0.55, 0.35],
+    [1.48, WALL_Z + 0.42, 0.7, 0.7, 0.35], [3.72, WALL_Z + 0.45, 0.6, 0.6, 0.35], [WALL_X + 0.45, 4.15, 0.6, 0.6, 0.35],
+    [WELL.x - 0.4, 2.9, 0.6, 0.6, 0.35], [-2.6, WALL_Z + 0.45, 0.55, 0.55, 0.35],
   ];
   const blobAttr = blobGeo.getAttribute('aStr') as THREE.InstancedBufferAttribute;
   statics.forEach(([x, z, w, d, st], i) => { blobs.setMatrixAt(i, _m.makeScale(w, 1, d).setPosition(x, 0.031, z)); blobAttr.setX(i, st); });
@@ -650,7 +655,7 @@ export function buildRoom(): RoomBuild {
   blobs.userData.first = FIRST_DYNAMIC;
 
   // Fixed light rig entries: pendant and window spill.
-  lightRig.pos[PENDANT_LAMP].set(PENDANT.x, PENDANT.y - 0.3, PENDANT.z, 5.2);
+  lightRig.pos[PENDANT_LAMP].set(PENDANT.x, PENDANT.y - 0.3, PENDANT.z, 6.6);
   lightRig.pos[WINDOW_LAMP].set(WALL_X + 0.9, 2.3, (WINDOW.z0 + WINDOW.z1) / 2, 4.6);
   const pendantTint = new THREE.Color('#ffd9a0');
 
@@ -676,7 +681,7 @@ export function buildRoom(): RoomBuild {
         gAmt[i] = lv * atmo.lampGlow * 0.55;
       }
       lightRig.level[PENDANT_LAMP] = atmo.pendant;
-      lightRig.col[PENDANT_LAMP].set(pendantTint.r, pendantTint.g, pendantTint.b).multiplyScalar(2.1 * atmo.pendant);
+      lightRig.col[PENDANT_LAMP].set(pendantTint.r, pendantTint.g, pendantTint.b).multiplyScalar(2.5 * atmo.pendant);
       gAmt[MAX_SLOTS] = 0.45 * atmo.pendant * atmo.lampGlow;
       lightRig.col[WINDOW_LAMP].set(atmo.spill.r, atmo.spill.g, atmo.spill.b).multiplyScalar(atmo.spillI);
       (gGeo.attributes.aAmt as THREE.BufferAttribute).needsUpdate = true;
@@ -712,6 +717,7 @@ export function buildRoom(): RoomBuild {
       haze.visible = q.haze;
       win.setLow(q.simpleRain);
     },
+    setPx(px) { gMat.uniforms.uPx.value = px; },
     dispose() {
       group.traverse((o) => {
         const m = o as THREE.Mesh;

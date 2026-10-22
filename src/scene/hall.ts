@@ -22,20 +22,20 @@ export const LAMP_FADE = 0.5;
 export const TABLE_TOP = 0.69;
 export const TABLE = { len: 5.6, depth: 1.36 };
 /** Inner faces of the two walls: the window/bookshelf wall (−x) and the door wall (−z). */
-export const WALL_X = -5.6;
-export const WALL_Z = -3.8;
+export const WALL_X = -4.9;
+export const WALL_Z = -5.2;
 export const WALL_H = 5.6;
 /** Far edges of the floor on the open sides. */
-export const FLOOR_X1 = 8.5;
+export const FLOOR_X1 = 9;
 export const FLOOR_Z1 = 7.5;
 /** Stairwell opening at the near-right (x beyond, z beyond). */
-export const WELL = { x: 4.7, z: -1.9 };
+export const WELL = { x: 3.55, z: -0.6 };
 
-export const WINDOW = { z0: 0.15, z1: 3.35, y0: 1.08, y1: 4.0, cols: 4, rows: 3, mull: 0.035 };
-export const COUNTER = { top: 0.96, depth: 0.52, z0: -0.05, z1: 3.55 };
-export const SHELF = { z0: -3.62, bay: 1.02, bays: 3, depth: 0.44, h: 2.78 };
-export const DOOR = { x: 2.95, w: 1.06, h: 2.26 };
-export const PENDANT = { x: -0.7, y: 3.55, z: -0.05 };
+export const WINDOW = { z0: -0.85, z1: 2.55, y0: 1.08, y1: 4.0, cols: 4, rows: 4, mull: 0.06 };
+export const COUNTER = { top: 0.96, depth: 0.62, z0: -1.15, z1: 2.85 };
+export const SHELF = { z0: -5.0, bay: 1.05, bays: 3, depth: 0.44, h: 2.78 };
+export const DOOR = { x: 2.55, w: 1.06, h: 2.26 };
+export const PENDANT = { x: 0.15, y: 3.7, z: -0.25 };
 
 // ---- seats -----------------------------------------------------------------
 
@@ -114,7 +114,8 @@ export const SPOTS: Spot[] = [
 ];
 
 /** Stool positions along the window counter (x, z). */
-export const STOOLS: [number, number][] = [[-4.98, 0.85], [-4.98, 1.7], [-4.98, 2.55]];
+export const STOOLS: [number, number][] = [[-4.16, 0.2], [-4.16, 1.1], [-4.16, 2.0]];
 
-export const SOFA = { x: -3.9, z: 3.85, len: 2.7, seat: 0.33 };
-export const COFFEE = { x: -3.55, z: 2.35, r: 0.5 };
+/** Sofa runs along x with its back toward the table (−z), facing the camera side. */
+export const SOFA = { x: -3.05, z: 3.3, len: 2.7, seat: 0.33 };
+export const COFFEE = { x: -2.2, z: 4.45, r: 0.5 };

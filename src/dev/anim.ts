@@ -4,6 +4,9 @@ import * as THREE from 'three';
 import { AVATARS } from '../lib/avatars';
 import { Character, CHAIR_ROOT_Y } from '../scene/character';
 import { buildRoom } from '../scene/room';
+import { createAtmo, blendAtmo } from '../scene/atmosphere';
+import { stUniforms } from '../scene/envMaterial';
+import { MAX_SLOTS } from '../scene/hall';
 
 const ACTS = ['write', 'read', 'type', 'sip', 'think', 'neck', 'page', 'stretch', 'drink', 'phone', 'nap', 'gaze', 'recline', 'chat'];
 
@@ -25,16 +28,19 @@ export function mountAnim(el: HTMLElement) {
   const fill = new THREE.DirectionalLight('#ffd9b0', 0.9);
   fill.position.set(5, 6, 6);
   scene.add(fill);
+  // Plain studio light here: switch the room's window/lamp lighting off.
+  stUniforms.stOn.value = 0;
+  const atmo = blendAtmo(createAtmo(), 1, 0);
   const room = buildRoom();
   scene.add(room.group);
   const chars = room.seats.map((slot) => {
-    const c = new Character(AVATARS[slot.index % AVATARS.length], { seed: slot.index * 31 + 5 });
+    const c = new Character(AVATARS[slot.slot % AVATARS.length], { seed: slot.slot * 31 + 5 });
     c.focusAct = slot.focusAct;
-    c.attach({ tableMug: slot.tableMug, page: slot.page ?? undefined });
+    c.attach({ tableMug: slot.mug, page: slot.page ?? undefined });
     c.root.position.y = CHAIR_ROOT_Y;
     slot.anchor.add(c.root);
-    slot.props.visible = true;
-    slot.emptyGlow.visible = false;
+    slot.kitTarget = slot.kitShown = 1;
+    slot.chair.offset = 0;
     return c;
   });
 
@@ -43,7 +49,7 @@ export function mountAnim(el: HTMLElement) {
   let view = Number(new URLSearchParams(location.search).get('seat') ?? 1);
   const eye = new THREE.Vector3(), look = new THREE.Vector3();
   function aim() {
-    if (view < 0) { cam.position.set(-3.2, 2.3, 2.9); cam.lookAt(-4.15, 0.85, 1.6); return; }
+    if (view < 0) { cam.position.set(-1.6, 2.6, 6.4); cam.lookAt(-3.9, 0.5, 3.6); return; }
     const a = room.seats[view].anchor;
     eye.set(1.1, 1.75, 2.35); look.set(0, 0.75, 0.3);
     cam.position.copy(a.localToWorld(eye));
@@ -57,14 +63,14 @@ export function mountAnim(el: HTMLElement) {
     bar.appendChild(b);
     return b;
   };
-  for (let i = -1; i < 10; i++) btn(i < 0 ? 'armchair' : `seat ${i}`, () => { view = i; aim(); });
+  for (let i = -1; i < MAX_SLOTS; i++) btn(i < 0 ? 'sofa' : `seat ${i}`, () => { view = i; aim(); });
   for (const a of ACTS) btn(a, () => (view < 0 ? null : chars[view].play(a)));
   btn('all break', () => chars.forEach((c) => (c.status = 'break')));
   btn('all focus', () => chars.forEach((c) => (c.status = 'focusing')));
   let paused = false;
   const tick = (dt: number) => {
     clock += dt;
-    room.update(clock, dt);
+    room.update(clock, dt, atmo);
     for (const c of chars) c.update(clock, dt);
   };
   // Console hooks for frame-exact inspection: __anim.pause(); __anim.step(1.2)

@@ -1,55 +1,95 @@
 // Imperative scene entry point. Mounted by components/StudyScene.tsx and
 // code-split so the entry screen never waits on three.js.
 import * as THREE from 'three';
-import { AVATARS, avatar } from '../lib/avatars';
-import { Character, CHAIR_ROOT_Y, disposeCharacterCache, type Status } from './character';
-import { buildRoom, type SeatSlot } from './room';
-import { glowPoints } from './ambient';
+import { AVATARS } from '../lib/avatars';
+import { Character } from './character';
+import { charMaterials, disposeCharacterCache } from './characterBuild';
+import { faceKit } from './faceAtlas';
 import { materials } from './toon';
+import { buildRoom } from './room';
+import { createCrowd, type Crowd, type Occupant } from './crowd';
+import { lightRig, patchLighting, stUniforms } from './envMaterial';
+import { blendAtmo, createAtmo, type TimeOfDay, type Weather } from './atmosphere';
+import { createQuality, type QualityStats, type Tier, type TierChoice } from './quality';
+import { createCameraRig, type CameraView } from './camera';
+import { createMotes, createSteam } from './ambient';
+import { MAX_SLOTS, type SlotStatus } from './hall';
 
 export type { Status } from './character';
+export type { TimeOfDay, Weather } from './atmosphere';
+export type { Tier, TierChoice } from './quality';
+export type { SlotStatus } from './hall';
+export { MAX_SLOTS } from './hall';
 
+/** What the app passes today (one entry per app seat, up to its ROOM_CAP). */
 export interface SeatOccupant {
   userId: string;
   nickname: string;
   avatar: number;
-  status: Status;
+  status: 'focusing' | 'break' | 'away';
   isMe: boolean;
+}
+
+/** The scene's own input: one entry per slot (0..MAX_SLOTS-1). */
+export interface Participant {
+  slot: number;
+  name: string;
+  status: SlotStatus;
+  avatar?: number;
+  id?: string;
+  isMe?: boolean;
+}
+
+export interface SceneStats extends QualityStats { calls: number; triangles: number; textures: number; geometries: number }
+
+/** Hooks for the Scene Lab and ?debug=1. */
+export interface SceneDebug {
+  stats(): SceneStats;
+  setSpeed(k: number): void;
+  view(): CameraView;
+  setView(v: Partial<CameraView>, instant?: boolean): void;
+  capture(width: number, height: number): string;
+  /** Render from an arbitrary viewpoint (close-ups in the lab). */
+  captureFrom(eye: [number, number, number], target: [number, number, number], fov: number, width: number, height: number): string;
+  /** Advance the simulation by `sec` seconds without waiting for frames (lab captures). */
+  step(sec: number): void;
+  crowd: Crowd;
+  scene: THREE.Scene;
+  renderer: THREE.WebGLRenderer;
 }
 
 export interface StudySceneHandle {
   setSeats(seats: (SeatOccupant | null)[]): void;
   setLabelsVisible(v: boolean): void;
+  setParticipants(list: Participant[]): void;
+  setTimeOfDay(t: TimeOfDay): void;
+  setWeather(w: Weather): void;
+  setQuality(q: TierChoice): void;
+  resetView(): void;
   dispose(): void;
+  debug: SceneDebug;
 }
 
-type Tier = 'high' | 'medium' | 'low';
-const TIERS: Tier[] = ['high', 'medium', 'low'];
-const TIER_CFG: Record<Tier, { dpr: number; shadows: boolean; motes: boolean; fps: number }> = {
-  high: { dpr: 2, shadows: true, motes: true, fps: 60 },
-  medium: { dpr: 1.5, shadows: false, motes: true, fps: 60 },
-  low: { dpr: 1, shadows: false, motes: false, fps: 30 },
-};
+export interface SceneOptions { timeOfDay?: TimeOfDay; weather?: Weather; quality?: Tier }
 
-function detectTier(): Tier {
-  const nav = navigator as Navigator & { deviceMemory?: number };
-  const coarse = matchMedia('(pointer: coarse)').matches;
-  const cores = nav.hardwareConcurrency || 4;
-  const mem = nav.deviceMemory ?? 4;
-  const q = new URLSearchParams(location.search).get('quality');
-  if (q === 'high' || q === 'medium' || q === 'low') return q;
-  if (!coarse && cores >= 8) return 'high';
-  if (!coarse) return 'medium';
-  if (cores >= 8 && mem >= 6) return 'medium';
-  return 'low';
-}
+const FIXED = 1 / 60;
+// Overflow seats (app seats beyond MAX_SLOTS) fill free slots middle-out, faces first.
+const OVERFLOW_ORDER = [1, 2, 5, 6, 0, 3, 4, 7];
+const STATUS: Record<SeatOccupant['status'], SlotStatus> = { focusing: 'focus', break: 'break', away: 'away' };
 
-export function createStudyScene(container: HTMLElement): StudySceneHandle {
-  let tier = detectTier();
-  const renderer = new THREE.WebGLRenderer({ antialias: tier !== 'low', powerPreference: 'high-performance', stencil: false });
+export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}): StudySceneHandle {
+  const params = new URLSearchParams(location.search);
+  const q = params.get('quality');
+  const quality = createQuality(opts.quality ?? (q === 'high' || q === 'medium' || q === 'low' ? q : null));
+  const debugHud = params.get('debug') === '1';
+  const pt = params.get('time'), pw = params.get('weather');
+  let night = (opts.timeOfDay ?? (pt === 'day' ? 'day' : 'night')) === 'night' ? 1 : 0;
+  let rain = (opts.weather ?? (pw === 'clear' ? 'clear' : 'rain')) === 'rain' ? 1 : 0;
+  let nightCur = night, rainCur = rain;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: quality.getTier() !== 'low', powerPreference: 'high-performance', stencil: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.domElement.className = 'scene-canvas';
   container.appendChild(renderer.domElement);
   const labelLayer = document.createElement('div');
@@ -57,40 +97,39 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
   container.appendChild(labelLayer);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#0b1322');
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 60);
+  const atmo = createAtmo();
+  blendAtmo(atmo, night, rain);
+  scene.background = atmo.bg.clone();
 
-  scene.add(new THREE.HemisphereLight('#6d82c4', '#2a1d26', 1.25));
-  const moon = new THREE.DirectionalLight('#9cb8ff', 1.1);
-  moon.position.set(-2.5, 7, -7);
-  moon.target.position.set(0, 0, 0);
-  moon.shadow.mapSize.set(1024, 1024);
-  Object.assign(moon.shadow.camera, { left: -6.5, right: 6.5, top: 6, bottom: -4, near: 1, far: 22 });
-  moon.shadow.bias = -0.0008;
-  moon.shadow.normalBias = 0.02;
-  const fill = new THREE.DirectionalLight('#ffd9b0', 0.7);
-  fill.position.set(5, 6, 6);
-  scene.add(moon, moon.target, fill);
+  // Lights: the sun/moon must be the first directional light (window-masked in the shaders).
+  const hemi = new THREE.HemisphereLight();
+  const sun = new THREE.DirectionalLight();
+  const fill = new THREE.DirectionalLight();
+  sun.target.position.set(-0.5, 0, -0.5);
+  fill.position.set(9, 10, 11);
+  sun.shadow.bias = -0.0006;
+  sun.shadow.normalBias = 0.025;
+  Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 7, bottom: -7, near: 1, far: 40 });
+  scene.add(sun, sun.target, fill, hemi);
+
+  // The characters (frozen) get the room's lamps and window light on their own materials.
+  const cm = charMaterials();
+  patchLighting(cm.toon);
+  Object.values(faceKit(cm.gradient).mats).forEach(patchLighting);
+  patchLighting(materials().toon);
 
   const room = buildRoom();
-  if (import.meta.env.DEV) (window as unknown as { __st: unknown }).__st = { renderer, seats: room.seats, get tier() { return tier; } };
   scene.add(room.group);
+  const crowd = createCrowd(room);
+  const steam = createSteam(MAX_SLOTS);
+  const motes = createMotes(atmo.sunDir.clone());
+  scene.add(steam.points, motes.points);
 
-  // Ambient particles.
-  const motePos = new Float32Array(70 * 3);
-  for (let i = 0; i < 70; i++) motePos.set([(Math.random() - 0.5) * 9, 0.7 + Math.random() * 3, -4 + Math.random() * 5.5], i * 3);
-  const motes = glowPoints(motePos, 1, '#ffd9a0', 0.12, 0.35);
-  const steamPos = new Float32Array(30 * 3);
-  const steam = glowPoints(steamPos, 2, '#fff4e6', 0.32, 0.18);
-  const fairyPos: number[] = [];
-  for (let k = 0; k < 26; k++) { const a = (k / 25) * Math.PI; fairyPos.push(Math.cos(a) * 1.82, 0.83 + 2.15 + Math.sin(a) * 1.82, -4.36); }
-  for (let k = 0; k < 7; k++) [-1, 1].forEach((sd) => fairyPos.push(sd * 1.82, 0.83 + 2.15 - k * 0.3, -4.36));
-  const fairy = glowPoints(new Float32Array(fairyPos), 0, '#ffc46b', 0.6, 0.9);
-  scene.add(motes, steam, fairy);
-  const pointMats = [motes, steam, fairy].map((p) => p.material as THREE.ShaderMaterial);
-
+  const camRig = createCameraRig(renderer.domElement);
+  const camera = camRig.camera;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  const labels: HTMLDivElement[] = room.seats.map(() => {
+
+  const labels: HTMLDivElement[] = Array.from({ length: MAX_SLOTS }, () => {
     const d = document.createElement('div');
     d.className = 'seat-label';
     d.hidden = true;
@@ -98,198 +137,263 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
     return d;
   });
   let labelsVisible = true;
+  let hud: HTMLDivElement | null = null;
+  if (debugHud) {
+    hud = document.createElement('div');
+    hud.style.cssText = 'position:absolute;left:8px;bottom:8px;z-index:5;font:11px/1.4 ui-monospace,monospace;color:#e8e2d8;background:rgba(0,0,0,.55);padding:4px 6px;border-radius:6px;pointer-events:none;white-space:pre';
+    container.appendChild(hud);
+  }
 
-  // ---- quality ---------------------------------------------------------
-  let width = 1, height = 1;
-  function applyTier() {
-    const cfg = TIER_CFG[tier];
-    const dpr = Math.min(window.devicePixelRatio || 1, cfg.dpr);
+  // ---- quality ---------------------------------------------------------------------
+  let width = 1, height = 1, dpr = 1, shadowSize = 0;
+  function applyQuality() {
+    const s = quality.settings();
+    dpr = Math.min(window.devicePixelRatio || 1, s.dpr);
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
-    if (renderer.shadowMap.enabled !== cfg.shadows) {
-      renderer.shadowMap.enabled = cfg.shadows;
-      moon.castShadow = cfg.shadows;
-      materials().toon.needsUpdate = true;
+    if (s.shadowMap !== shadowSize) {
+      shadowSize = s.shadowMap;
+      renderer.shadowMap.enabled = shadowSize > 0;
+      renderer.shadowMap.type = s.shadowSoft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+      sun.castShadow = shadowSize > 0;
+      if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null as unknown as THREE.WebGLRenderTarget; }
+      if (shadowSize) sun.shadow.mapSize.set(shadowSize, shadowSize);
+      scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        if (m) (Array.isArray(m) ? m : [m]).forEach((x) => { x.needsUpdate = true; });
+      });
     }
-    motes.visible = cfg.motes;
-    for (const m of pointMats) m.uniforms.uPx.value = dpr * height * 0.9;
+    room.setQuality(s);
+    motes.setCount(s.motes);
+    steam.setCount(s.steamPerMug);
+    const px = dpr * height * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    for (const m of [steam.points, motes.points]) ((m.material as THREE.ShaderMaterial).uniforms.uPx.value = px);
+    room.setPx(px);
   }
-
-  // ---- camera ----------------------------------------------------------
-  const target = new THREE.Vector3();
-  const base = { theta: 0.5, phi: 0.5, dist: 14, fov: 30 };
-  const par = { x: 0, y: 0, tx: 0, ty: 0 };
-  const drag = { theta: 0, phi: 0, active: false, lastX: 0, lastY: 0, releasedAt: 0 };
-  function frame() {
-    const a = width / height;
-    const t = THREE.MathUtils.clamp((a - 0.5) / 1.0, 0, 1);
-    const lerp = THREE.MathUtils.lerp;
-    base.theta = lerp(0.78, 0.42, t);
-    base.phi = lerp(0.52, 0.42, t);
-    base.fov = lerp(40, 30, t);
-    target.set(lerp(-0.15, 0, t), lerp(0.7, 0.75, t), lerp(-0.2, -0.35, t));
-    const vf = THREE.MathUtils.degToRad(base.fov) / 2;
-    const hf = Math.atan(Math.tan(vf) * a);
-    const rw = lerp(2.05, 4.1, t), rh = 2.3;
-    base.dist = Math.max(rw / Math.tan(hf), rh / Math.tan(vf));
-    camera.fov = base.fov;
-    camera.aspect = a;
-    camera.updateProjectionMatrix();
-  }
-  function placeCamera(now: number) {
-    const still = reduced.matches;
-    par.x += (par.tx - par.x) * 0.05;
-    par.y += (par.ty - par.y) * 0.05;
-    if (!drag.active && now - drag.releasedAt > 4) { drag.theta *= 0.985; drag.phi *= 0.985; }
-    const th = base.theta + drag.theta + (still ? 0 : 0.035 * Math.sin(now * 0.07) + par.x * 0.06);
-    const ph = base.phi + drag.phi + (still ? 0 : 0.018 * Math.sin(now * 0.05 + 1) + par.y * 0.03);
-    const d = base.dist;
-    camera.position.set(target.x + d * Math.cos(ph) * Math.sin(th), target.y + d * Math.sin(ph), target.z + d * Math.cos(ph) * Math.cos(th));
-    camera.lookAt(target);
-  }
-
-  const canvas = renderer.domElement;
-  const onDown = (e: PointerEvent) => { drag.active = true; drag.lastX = e.clientX; drag.lastY = e.clientY; canvas.setPointerCapture(e.pointerId); };
-  const onMove = (e: PointerEvent) => {
-    if (drag.active) {
-      drag.theta = THREE.MathUtils.clamp(drag.theta - (e.clientX - drag.lastX) * 0.004, -0.45, 0.45);
-      drag.phi = THREE.MathUtils.clamp(drag.phi + (e.clientY - drag.lastY) * 0.003, -0.15, 0.22);
-      drag.lastX = e.clientX; drag.lastY = e.clientY;
-    } else if (e.pointerType === 'mouse') {
-      par.tx = (e.clientX / width - 0.5) * 2;
-      par.ty = (e.clientY / height - 0.5) * 2;
-    }
-  };
-  const onUp = () => { drag.active = false; drag.releasedAt = clock; };
-  const onTilt = (e: DeviceOrientationEvent) => {
-    if (e.gamma == null || e.beta == null) return;
-    par.tx = THREE.MathUtils.clamp(e.gamma / 25, -1, 1);
-    par.ty = THREE.MathUtils.clamp((e.beta - 45) / 30, -1, 1);
-  };
-  canvas.addEventListener('pointerdown', onDown);
-  canvas.addEventListener('pointermove', onMove);
-  canvas.addEventListener('pointerup', onUp);
-  canvas.addEventListener('pointercancel', onUp);
-  window.addEventListener('deviceorientation', onTilt);
+  const unsubQ = quality.subscribe(applyQuality);
 
   const resize = () => {
     width = Math.max(1, container.clientWidth);
     height = Math.max(1, container.clientHeight);
-    applyTier();
-    frame();
+    camRig.resize(width, height);
+    applyQuality();
   };
   const ro = new ResizeObserver(resize);
   ro.observe(container);
   resize();
 
-  // ---- seats -----------------------------------------------------------
-  const occ: (SeatOccupant | null)[] = new Array(10).fill(null);
-  function setSeat(slot: SeatSlot, o: SeatOccupant | null) {
-    const prev = occ[slot.index];
-    if (!o || !prev || prev.avatar !== o.avatar || prev.userId !== o.userId) {
-      if (slot.character) { slot.anchor.remove(slot.character.root); slot.character.dispose(); slot.character = null; }
-      if (o) {
-        const c = new Character(avatar(o.avatar), { seed: slot.index * 31 + o.avatar });
-        c.focusAct = slot.focusAct;
-        c.attach({ tableMug: slot.tableMug, page: slot.page ?? undefined });
-        c.root.position.y = CHAIR_ROOT_Y;
-        slot.anchor.add(c.root);
-        slot.character = c;
-      }
-    }
-    occ[slot.index] = o;
-    slot.props.visible = !!o;
-    slot.emptyGlow.visible = !o;
-    slot.meRing.visible = !!o?.isMe;
-    if (slot.character && o) {
-      slot.character.status = o.status;
-      slot.character.root.visible = o.status !== 'away';
-      if (o.status === 'away') slot.character.park();
-    }
-    for (let k = 0; k < 3; k++) {
-      const i = (slot.index * 3 + k) * 3;
-      if (o) steamPos.set([slot.mugWorld.x + (k - 1) * 0.015, slot.mugWorld.y, slot.mugWorld.z], i);
-      else steamPos.set([0, -50, 0], i);
-    }
-    steam.geometry.attributes.position.needsUpdate = true;
-    const label = labels[slot.index];
-    if (o) {
-      label.textContent = o.nickname + (o.status === 'away' ? ' · away' : '');
-      label.className = 'seat-label' + (o.isMe ? ' me' : '') + (o.status === 'away' ? ' away' : '');
-    }
-    label.hidden = !o || !labelsVisible;
+  // ---- atmosphere ------------------------------------------------------------------
+  let atmoDirty = true;
+  function applyAtmo() {
+    blendAtmo(atmo, nightCur, rainCur);
+    hemi.color.copy(atmo.hemiSky); hemi.groundColor.copy(atmo.hemiGround); hemi.intensity = atmo.hemiI;
+    sun.color.copy(atmo.sun); sun.intensity = atmo.sunI;
+    sun.position.copy(sun.target.position).addScaledVector(atmo.sunDir, 18);
+    lightRig.sunDir.copy(atmo.sunDir);
+    stUniforms.stWin.value.w = atmo.sunSoft;
+    fill.color.copy(atmo.fill); fill.intensity = atmo.fillI;
+    (scene.background as THREE.Color).copy(atmo.bg);
+    const u = room.window.uniforms;
+    u.uSkyTop.value.copy(atmo.skyTop); u.uSkyBot.value.copy(atmo.skyBot);
+    u.uSunCol.value.copy(atmo.sunGlow); u.uSun.value.set(0.82, 0.3, atmo.sunGlowAmt);
+    u.uCityCol.value.copy(atmo.city); u.uCityHaze.value = atmo.cityHaze;
+    u.uTreeCol.value.copy(atmo.tree); u.uTreeLit.value.copy(atmo.treeLit);
+    u.uLights.value = atmo.cityLights; u.uStars.value = atmo.stars; u.uRain.value = atmo.rain;
+    u.uGlass.value.copy(atmo.glass);
   }
 
-  // ---- loop ------------------------------------------------------------
-  let raf = 0;
-  let clock = 0;
-  let last = 0;
-  let acc = 0, frames = 0, sinceTierChange = 0;
-  const v = new THREE.Vector3();
-  function tick(ts: number) {
-    raf = requestAnimationFrame(tick);
-    const nowS = ts / 1000;
-    const rawDt = last ? nowS - last : 1 / 60;
-    if (rawDt < 1 / TIER_CFG[tier].fps - 0.004) return;
-    last = nowS;
-    const dt = Math.min(rawDt, 0.1);
-    clock += dt;
-    // Adaptive downgrade when frame time stays poor.
-    acc += rawDt; frames++; sinceTierChange += rawDt;
-    if (frames >= 90) {
-      const avg = acc / frames;
-      const limit = tier === 'low' ? Infinity : tier === 'high' ? 1 / 45 : 1 / 32;
-      if (avg > limit && sinceTierChange > 3 && clock > 4) {
-        tier = TIERS[TIERS.indexOf(tier) + 1];
-        sinceTierChange = 0;
-        applyTier();
+  // ---- seats -----------------------------------------------------------------------
+  const slotOf = new Map<string, number>();
+  let populated = false;
+  const occ: (Occupant | null)[] = new Array(MAX_SLOTS).fill(null);
+  function commit() {
+    crowd.set(occ, !populated || reduced.matches);
+    populated = true;
+    for (let i = 0; i < MAX_SLOTS; i++) {
+      const o = occ[i], l = labels[i];
+      if (o) {
+        l.textContent = o.name + (o.status === 'away' ? ' · away' : '');
+        l.className = 'seat-label' + (o.isMe ? ' me' : '') + (o.status === 'away' ? ' away' : '');
       }
-      acc = 0; frames = 0;
+      l.hidden = !o || !labelsVisible;
     }
-    const ambientT = reduced.matches ? clock * 0.3 : clock;
-    room.update(clock, dt);
+  }
+  /** App seats (any count) → scene slots, sticky per user so nobody jumps seats. */
+  function setSeats(seats: (SeatOccupant | null)[]) {
+    const list = seats.map((s, i) => (s ? { s, i } : null)).filter((x): x is { s: SeatOccupant; i: number } => !!x);
+    const present = new Set(list.map((x) => x.s.userId));
+    for (const k of [...slotOf.keys()]) if (!present.has(k)) slotOf.delete(k);
+    const taken = new Array<boolean>(MAX_SLOTS).fill(false);
+    slotOf.forEach((v) => { taken[v] = true; });
+    for (const { s, i } of list) {
+      if (slotOf.has(s.userId)) continue;
+      if (i < MAX_SLOTS && !taken[i]) { slotOf.set(s.userId, i); taken[i] = true; }
+    }
+    for (const { s } of list) {
+      if (slotOf.has(s.userId)) continue;
+      const free = OVERFLOW_ORDER.find((k) => !taken[k]);
+      if (free === undefined) continue; // more people than chairs: listed in the panel, not seated
+      slotOf.set(s.userId, free); taken[free] = true;
+    }
+    occ.fill(null);
+    for (const { s } of list) {
+      const k = slotOf.get(s.userId);
+      if (k !== undefined) occ[k] = { key: s.userId, name: s.nickname, avatar: s.avatar, status: STATUS[s.status], isMe: s.isMe };
+    }
+    commit();
+  }
+  function setParticipants(list: Participant[]) {
+    occ.fill(null);
+    for (const p of list) {
+      if (p.slot < 0 || p.slot >= MAX_SLOTS || p.status === 'empty') continue;
+      occ[p.slot] = { key: p.id ?? `slot-${p.slot}-${p.avatar ?? p.slot}`, name: p.name, avatar: p.avatar ?? p.slot, status: p.status, isMe: !!p.isMe };
+    }
+    commit();
+  }
+
+  // ---- loop ------------------------------------------------------------------------
+  let raf = 0, prev = 0, lastRender = 0, acc = 0, simT = 0, speed = 1;
+  const v = new THREE.Vector3();
+  const mugW = new THREE.Vector3();
+  function render(frameDt: number) {
+    const still = reduced.matches;
+    // Weather/time crossfade (~2.5 s; instant under reduced motion).
+    const k = still ? 1 : frameDt / 2.5;
+    if (nightCur !== night || rainCur !== rain) {
+      nightCur = nightCur < night ? Math.min(night, nightCur + k) : Math.max(night, nightCur - k);
+      rainCur = rainCur < rain ? Math.min(rain, rainCur + k) : Math.max(rain, rainCur - k);
+      atmoDirty = true;
+    }
+    if (atmoDirty) { applyAtmo(); atmoDirty = false; }
+    const ambientT = still ? simT * 0.3 : simT;
     room.window.uniforms.uTime.value = ambientT;
-    for (const m of pointMats) m.uniforms.uTime.value = ambientT;
-    for (const s of room.seats) s.character?.update(clock, dt);
-    placeCamera(clock);
+    room.update(simT, frameDt, atmo);
+    crowd.update(simT, frameDt);
+    for (let i = 0; i < MAX_SLOTS; i++) {
+      const s = room.seats[i];
+      if (s.kit.visible && occ[i] && occ[i]!.status !== 'away') steam.setSource(i, mugW.setFromMatrixPosition(s.mug.matrixWorld).setY(mugW.y + 0.11));
+      else steam.setSource(i, null);
+    }
+    steam.update(ambientT);
+    motes.update(ambientT, atmo.motes, atmo.sun);
+    camRig.update(frameDt, simT, still);
     renderer.render(scene, camera);
     if (labelsVisible) {
-      for (const s of room.seats) {
-        const l = labels[s.index];
+      for (let i = 0; i < MAX_SLOTS; i++) {
+        const l = labels[i];
         if (l.hidden) continue;
-        v.copy(s.headWorld);
-        if (occ[s.index]?.status === 'away') v.y -= 0.7;
+        if (!crowd.labelPoint(i, v)) continue;
         v.project(camera);
         const x = (v.x * 0.5 + 0.5) * width, y = (-v.y * 0.5 + 0.5) * height;
         l.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
       }
     }
   }
-  const start = () => { if (!raf) { last = 0; raf = requestAnimationFrame(tick); } };
+
+  let hudT = 0;
+  function tick(ts: number) {
+    raf = requestAnimationFrame(tick);
+    const fps = quality.settings().fps;
+    if (!prev) { prev = lastRender = ts; }
+    if (fps > 0) {
+      // Drift-free limiter: skip until the next slot (1 ms early tolerance), advance along the ideal schedule.
+      const interval = 1000 / fps;
+      const since = ts - lastRender;
+      if (since < interval - 1) return;
+      lastRender = since > 250 ? ts : lastRender + Math.max(1, Math.floor((since + 1) / interval)) * interval;
+    }
+    let ms = ts - prev;
+    prev = ts;
+    if (ms > 250) ms = 1000 / 60; // hidden or stalled: don't fast-forward
+    quality.frame(ms, ts / 1000);
+    const dt = Math.min(ms / 1000, 0.1) * speed;
+    acc += dt;
+    while (acc >= FIXED) { acc -= FIXED; simT += FIXED; }
+    render(dt);
+    if (hud && ts / 1000 - hudT > 0.5) {
+      hudT = ts / 1000;
+      const st = debug.stats();
+      hud.textContent = `${st.tier}${st.choice === 'auto' ? ' (auto)' : ''}  ${st.fps.toFixed(0)} fps  p95 ${st.p95.toFixed(1)} ms\n${st.calls} calls  ${(st.triangles / 1000).toFixed(0)}k tris`;
+    }
+  }
+  const start = () => { if (!raf) { prev = 0; raf = requestAnimationFrame(tick); } };
   const stop = () => { cancelAnimationFrame(raf); raf = 0; };
   const onVis = () => (document.hidden ? stop() : start());
   document.addEventListener('visibilitychange', onVis);
   start();
 
+  const debug: SceneDebug = {
+    stats: () => ({ ...quality.stats(), calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries }),
+    setSpeed(k) { speed = Math.max(0, k); },
+    view: () => camRig.view(),
+    setView: (vv, instant) => camRig.setView(vv, instant),
+    capture(w, h) {
+      const pw = width, ph = height, pd = dpr;
+      nightCur = night; rainCur = rain; atmoDirty = true;
+      width = w; height = h;
+      renderer.setPixelRatio(1);
+      renderer.setSize(w, h, false);
+      camRig.resize(w, h);
+      render(0);
+      const url = renderer.domElement.toDataURL('image/png');
+      width = pw; height = ph; dpr = pd;
+      camRig.resize(pw, ph);
+      renderer.setPixelRatio(pd);
+      renderer.setSize(pw, ph, false);
+      return url;
+    },
+    captureFrom(eye, tgt, fov, w, h) {
+      const cam = new THREE.PerspectiveCamera(fov, w / h, 0.05, 80);
+      cam.position.set(...eye);
+      cam.lookAt(...tgt);
+      nightCur = night; rainCur = rain; atmoDirty = true;
+      render(0);
+      renderer.setPixelRatio(1);
+      renderer.setSize(w, h, false);
+      renderer.render(scene, cam);
+      const url = renderer.domElement.toDataURL('image/png');
+      renderer.setPixelRatio(dpr);
+      renderer.setSize(width, height, false);
+      return url;
+    },
+    step(sec) {
+      const n = Math.round(sec / FIXED);
+      for (let i = 0; i < n; i++) { simT += FIXED; render(FIXED); }
+    },
+    crowd, scene, renderer,
+  };
+  if (import.meta.env.DEV) (window as unknown as { __st: unknown }).__st = { debug, room, quality, camRig, atmo };
+
   return {
-    setSeats(seats) { room.seats.forEach((slot, i) => setSeat(slot, seats[i] ?? null)); },
+    setSeats,
+    setParticipants,
     setLabelsVisible(vis) {
       labelsVisible = vis;
       labels.forEach((l, i) => { l.hidden = !vis || !occ[i]; });
     },
+    setTimeOfDay(t) { night = t === 'night' ? 1 : 0; },
+    setWeather(w) { rain = w === 'rain' ? 1 : 0; },
+    setQuality(c) { quality.setTier(c); },
+    resetView() { camRig.resetView(); },
     dispose() {
       stop();
       document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('deviceorientation', onTilt);
       ro.disconnect();
+      unsubQ();
+      camRig.dispose();
+      crowd.dispose();
       room.dispose();
-      [motes, steam, fairy].forEach((p) => { p.geometry.dispose(); (p.material as THREE.Material).dispose(); });
+      steam.dispose();
+      motes.dispose();
+      sun.shadow.map?.dispose();
       disposeCharacterCache();
       materials().dispose();
       renderer.dispose();
-      canvas.remove();
+      renderer.domElement.remove();
       labelLayer.remove();
+      hud?.remove();
     },
+    debug,
   };
 }
 
@@ -312,6 +416,9 @@ export function renderAvatarThumbs(size = 144): Promise<string[]> {
     cam.position.set(0.55, 1.35, 2.6);
     cam.lookAt(0, 0.82, 0);
     const out: string[] = [];
+    // The room's lamp and window lighting is shared by the character materials; switch it off here.
+    const on = stUniforms.stOn.value;
+    stUniforms.stOn.value = 0;
     for (const v of AVATARS) {
       const c = new Character(v, { seed: v.id });
       c.posePortrait();
@@ -322,6 +429,7 @@ export function renderAvatarThumbs(size = 144): Promise<string[]> {
       scene.remove(c.root);
       c.dispose();
     }
+    stUniforms.stOn.value = on;
     renderer.dispose();
     renderer.forceContextLoss();
     resolve(out);

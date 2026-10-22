@@ -40,6 +40,8 @@ const U = {
   stTime: { value: 0 },
   stWrap: { value: 0.45 },
   stAOk: { value: 1 },
+  /** 0 turns the scene lighting off for renders outside the room (avatar thumbnails). */
+  stOn: { value: 1 },
 };
 export const stUniforms = U;
 
@@ -52,6 +54,7 @@ uniform vec4 stWin;
 uniform vec4 stWinY;
 uniform float stMull;
 uniform vec4 stTable;
+uniform float stOn;
 
 float stBox(float x, float a, float b, float e) { return smoothstep(a - e, a + e, x) * (1.0 - smoothstep(b - e, b + e, x)); }
 
@@ -102,7 +105,7 @@ vec3 stLampLight(vec3 p, vec3 n) {
 /** Directional light 0 is the sun/moon: mask it by the window. */
 const LIGHTS_BEGIN = THREE.ShaderChunk.lights_fragment_begin.replace(
   'getDirectionalLightInfo( directionalLight, directLight );',
-  'getDirectionalLightInfo( directionalLight, directLight );\n\t\tif ( i == 0 ) directLight.color *= stSun;',
+  'getDirectionalLightInfo( directionalLight, directLight );\n\t\t#if UNROLLED_LOOP_INDEX == 0\n\t\tdirectLight.color *= stSun;\n\t\t#endif',
 );
 
 function inject(shader: THREE.WebGLProgramParametersWithUniforms) {
@@ -112,10 +115,10 @@ function inject(shader: THREE.WebGLProgramParametersWithUniforms) {
     .replace('#include <lights_fragment_begin>', /* glsl */ `
       vec3 stWorldPos = ( vec4( - vViewPosition, 0.0 ) * viewMatrix ).xyz + cameraPosition;
       vec3 stWorldN = normalize( ( vec4( normal, 0.0 ) * viewMatrix ).xyz );
-      float stSun = stWindowLight( stWorldPos );
+      float stSun = mix( 1.0, stWindowLight( stWorldPos ), stOn );
       ${LIGHTS_BEGIN}`)
     .replace('#include <lights_fragment_end>', /* glsl */ `#include <lights_fragment_end>
-      reflectedLight.directDiffuse += stLampLight( stWorldPos, stWorldN ) * BRDF_Lambert( diffuseColor.rgb );`);
+      reflectedLight.directDiffuse += stOn * stLampLight( stWorldPos, stWorldN ) * BRDF_Lambert( diffuseColor.rgb );`);
 }
 
 const patched = new WeakSet<THREE.Material>();
@@ -186,12 +189,13 @@ export function envMaterial(opts: { sway?: boolean; emit?: boolean } = {}): THRE
           return mix(1.0, a, stAOk);
         }
         void main() {`)
-      .replace('#include <color_fragment>', /* glsl */ `#include <color_fragment>
+      .replace('#include <lights_lambert_fragment>', /* glsl */ `
         {
           vec3 wp = ( vec4( - vViewPosition, 0.0 ) * viewMatrix ).xyz + cameraPosition;
           vec3 wn = normalize( ( vec4( normal, 0.0 ) * viewMatrix ).xyz );
           diffuseColor.rgb *= stAO( wp, wn );
-        }`)
+        }
+        #include <lights_lambert_fragment>`)
       .replace('#include <lights_lambert_pars_fragment>', 'uniform float stWrap;\n' + THREE.ShaderChunk.lights_lambert_pars_fragment.replace(
         'float dotNL = saturate( dot( geometryNormal, directLight.direction ) );',
         'float dotNL = saturate( ( dot( geometryNormal, directLight.direction ) + stWrap ) / ( 1.0 + stWrap ) );',

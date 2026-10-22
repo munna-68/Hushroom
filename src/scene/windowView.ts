@@ -41,21 +41,23 @@ function paintTrees(): HTMLCanvasElement {
   c.width = W; c.height = H;
   const g = c.getContext('2d')!;
   g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-  g.globalCompositeOperation = 'lighter';
   const r = rng(19);
-  const trees = 9;
+  const trees = 7;
   for (let t = 0; t < trees; t++) {
-    const cx = (t + 0.2 + r() * 0.6) * (W / trees), base = H, top = 90 + r() * 120;
-    g.fillStyle = 'rgb(0,0,200)';
-    g.fillRect(cx - 7, (top + base) / 2, 14, base);
-    const blobs = 14 + Math.floor(r() * 8);
+    const cx = (t + 0.15 + r() * 0.7) * (W / trees), top = 150 + r() * 120;
+    g.fillStyle = 'rgb(0,0,255)';
+    g.beginPath(); g.moveTo(cx - 9, H); g.lineTo(cx - 5, top + 150); g.lineTo(cx + 5, top + 150); g.lineTo(cx + 9, H); g.fill();
+    // Crown: back blobs first (darker), front blobs last; each blob lit from the upper left.
+    const blobs = 18 + Math.floor(r() * 8);
     for (let k = 0; k < blobs; k++) {
-      const bx = cx + (r() - 0.5) * 170, by = top + r() * 210, br = 34 + r() * 46;
-      const lit = Math.floor(70 + 185 * Math.max(0, Math.min(1, 0.55 + (bx - cx) / 220 - (by - top) / 420)));
-      const grd = g.createRadialGradient(bx + br * 0.25, by - br * 0.3, br * 0.1, bx, by, br);
-      grd.addColorStop(0, `rgba(160,${lit},0,1)`);
-      grd.addColorStop(0.8, `rgba(120,${Math.floor(lit * 0.6)},0,1)`);
-      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      const f = k / blobs;
+      const bx = cx + (r() - 0.5) * 190, by = top + 30 + r() * 170 + f * 20, br = 26 + r() * 30;
+      const base = 40 + f * 90;
+      const grd = g.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.05, bx, by, br);
+      grd.addColorStop(0, `rgb(255,${Math.min(255, base + 150)},0)`);
+      grd.addColorStop(0.55, `rgb(255,${base + 40},0)`);
+      grd.addColorStop(0.9, `rgb(255,${base * 0.5},0)`);
+      grd.addColorStop(1, `rgba(255,${base * 0.5},0,0)`);
       g.fillStyle = grd;
       g.beginPath(); g.arc(bx, by, br, 0, Math.PI * 2); g.fill();
     }
@@ -162,8 +164,9 @@ export function buildWindowView(z0: number, z1: number, y0: number, y1: number, 
         col += vec3(1.0, 0.72, 0.38) * c.g * bm * uLights * tw * 0.9;
         // trees
         vec3 t = texture2D(uTrees, uvT).rgb;
-        float tm = smoothstep(0.25, 0.6, t.r) * step(uvT.y, 1.0);
-        vec3 tree = mix(uTreeCol, uTreeLit, t.g);
+        float tm = smoothstep(0.3, 0.7, t.r) * step(uvT.y, 1.0);
+        vec3 tree = mix(uTreeCol, uTreeLit, smoothstep(0.1, 0.95, t.g));
+        tree = mix(tree, col, uCityHaze * 0.22);
         col = mix(col, tree, tm);
         col = mix(col, uTreeCol * 0.7, t.b * (1.0 - tm) * step(uvT.y, 1.0));
         // rain: grey veil, streaks outside, drops on the glass

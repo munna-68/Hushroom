@@ -165,6 +165,8 @@ export class Character {
   private bookPos = new THREE.Vector3();
   private bookRotX = 0;
   private forced: string | null = null;
+  /** Scene hook: no new micro act (sip, think, neck roll) or page turn starts before this time. */
+  quietUntil = 0;
 
   constructor(v: AvatarVariant, opts: { chair?: boolean; seed?: number; standing?: boolean } = {}) {
     this.variant = v;
@@ -224,6 +226,9 @@ export class Character {
     this.act = 'idle';
     this.started = false;
   }
+
+  /** Scene hook: true while a sip, page turn or held mug is mid-gesture and must not be cut. */
+  get gesturing(): boolean { return this.pageStart >= 0 || this.mugHeld || this.act === 'sip'; }
 
   /** Dev: jump straight into an act (or 'page' to turn a page) on the next update. */
   play(name: string) { this.forced = name; }
@@ -313,7 +318,7 @@ export class Character {
     }
     if ((this.act === 'sip' || this.act === 'think' || this.act === 'neck') && now < this.actUntil) return;
     if (this.act !== this.focusAct) { this.setAct(this.focusAct, now, 1e9); return; }
-    if (now > this.nextMicro && this.pageStart < 0) {
+    if (now > this.nextMicro && this.pageStart < 0 && now >= this.quietUntil) {
       const r = this.rand();
       this.dir = this.rand() < 0.5 ? -1 : 1;
       if (this.hooks.tableMug && r < 0.5) this.setAct('sip', now, SIP_T);
@@ -683,7 +688,7 @@ export class Character {
     const pg = this.hooks.page;
     if (!pg) return;
     if (this.pageStart < 0) {
-      if (now < this.nextPage) return;
+      if (now < this.nextPage || now < this.quietUntil) return;
       this.pageStart = now; this.pagePhase = 0;
       this.nextPage = now + (this.chair ? 12 : 14) + this.rand() * 22;
     }
