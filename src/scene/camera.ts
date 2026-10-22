@@ -9,7 +9,7 @@ const clamp = THREE.MathUtils.clamp;
 
 /** Default framings; t = 0 portrait, 1 landscape. Tuned against the reference images. */
 const PORT = { az: deg(60), pitch: deg(45), fov: 44, target: new THREE.Vector3(0.35, 0.55, -0.1), halfW: 1.95, halfH: 3.0 };
-const LAND = { az: deg(36), pitch: deg(40), fov: 40, target: new THREE.Vector3(-0.3, 0.5, -0.2), halfW: 5.5, halfH: 3.1 };
+const LAND = { az: deg(36), pitch: deg(40), fov: 40, target: new THREE.Vector3(-0.75, 0.45, 0.05), halfW: 5.9, halfH: 3.32 };
 
 export const LIMITS = { yaw: deg(25), pitchMin: deg(28), pitchMax: deg(52), zoomMin: 0.85, zoomMax: 1.3 };
 

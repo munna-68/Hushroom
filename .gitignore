@@ -6,3 +6,6 @@ dist
 *.log
 .DS_Store
 *.tsbuildinfo
+
+# Scene Lab raw captures (curated comparisons live in docs/scene-v2/)
+docs/scene-v2/shots/

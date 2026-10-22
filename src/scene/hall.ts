@@ -35,7 +35,7 @@ export const WINDOW = { z0: -0.85, z1: 2.55, y0: 1.08, y1: 4.0, cols: 4, rows: 4
 export const COUNTER = { top: 0.96, depth: 0.62, z0: -1.15, z1: 2.85 };
 export const SHELF = { z0: -5.0, bay: 1.05, bays: 3, depth: 0.44, h: 2.78 };
 export const DOOR = { x: 2.55, w: 1.06, h: 2.26 };
-export const PENDANT = { x: 0.15, y: 3.7, z: -0.25 };
+export const PENDANT = { x: 0.6, y: 3.45, z: -0.6 };
 
 // ---- seats -----------------------------------------------------------------
 

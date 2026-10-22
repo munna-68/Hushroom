@@ -42,6 +42,8 @@ const U = {
   stAOk: { value: 1 },
   /** 0 turns the scene lighting off for renders outside the room (avatar thumbnails). */
   stOn: { value: 1 },
+  /** Extra soft light on characters only, so their unlit outlines stay darker than their surfaces at night. */
+  stCharFill: { value: new THREE.Color(0, 0, 0) },
 };
 export const stUniforms = U;
 
@@ -108,7 +110,7 @@ const LIGHTS_BEGIN = THREE.ShaderChunk.lights_fragment_begin.replace(
   'getDirectionalLightInfo( directionalLight, directLight );\n\t\t#if UNROLLED_LOOP_INDEX == 0\n\t\tdirectLight.color *= stSun;\n\t\t#endif',
 );
 
-function inject(shader: THREE.WebGLProgramParametersWithUniforms) {
+function inject(shader: THREE.WebGLProgramParametersWithUniforms, charFill = false) {
   Object.assign(shader.uniforms, U);
   shader.fragmentShader = shader.fragmentShader
     .replace('void main() {', `${PARS}\nvoid main() {`)
@@ -118,19 +120,24 @@ function inject(shader: THREE.WebGLProgramParametersWithUniforms) {
       float stSun = mix( 1.0, stWindowLight( stWorldPos ), stOn );
       ${LIGHTS_BEGIN}`)
     .replace('#include <lights_fragment_end>', /* glsl */ `#include <lights_fragment_end>
-      reflectedLight.directDiffuse += stOn * stLampLight( stWorldPos, stWorldN ) * BRDF_Lambert( diffuseColor.rgb );`);
+      reflectedLight.directDiffuse += stOn * stLampLight( stWorldPos, stWorldN ) * BRDF_Lambert( diffuseColor.rgb );
+      ${charFill ? 'reflectedLight.indirectDiffuse += stOn * stCharFill * diffuseColor.rgb;' : ''}`);
+  if (charFill) shader.fragmentShader = shader.fragmentShader.replace('void main() {', 'uniform vec3 stCharFill;\nvoid main() {');
 }
 
 const patched = new WeakSet<THREE.Material>();
 
-/** Give an existing lit material (toon/lambert, skinned or not) the scene's lamps and window light. */
-export function patchLighting(m: THREE.Material) {
+/**
+ * Give an existing lit material (toon/lambert, skinned or not) the scene's lamps and
+ * window light; `charFill` adds the characters' own soft fill.
+ */
+export function patchLighting(m: THREE.Material, charFill = false) {
   if (patched.has(m)) return;
   patched.add(m);
   const prev = m.onBeforeCompile;
-  m.onBeforeCompile = (s, r) => { prev.call(m, s, r); inject(s); };
+  m.onBeforeCompile = (s, r) => { prev.call(m, s, r); inject(s, charFill); };
   const key = m.customProgramCacheKey.bind(m);
-  m.customProgramCacheKey = () => key() + '|stLit';
+  m.customProgramCacheKey = () => key() + (charFill ? '|stLitC' : '|stLit');
   m.needsUpdate = true;
 }
 

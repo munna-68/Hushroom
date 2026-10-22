@@ -331,3 +331,23 @@ Destinations hold reservations (bookshelf 2, window 2, sofa 2, in-place spots un
 | `supabase/migrations/20261022000000_study_together.sql` | `< 10` (quick join) and `>= 10` (room full) |
 | `src/data/demo.ts` | the "Med prep" demo room seeds 9 bots |
 | `PROJECT.md` | §1, §3.1, §10.2 |
+
+---
+
+## 7. Results (end of session)
+
+Comparison images: `docs/scene-v2/*.jpg` (reference on the left, render on the right).
+Scene Lab raw captures land in `docs/scene-v2/shots/` (gitignored).
+
+Measured on an M4 Mac mini at 1280×720, 8 people with three on breaks, night/rain; draw calls
+and triangles include the shadow pass. Frame times are GPU-synced render times on this machine
+and say little about phones.
+
+| Tier | Draw calls | Triangles | DPR | Render time (avg / p95) |
+|---|---|---|---|---|
+| High | 85 | 339k | 2 | 0.51 / 1.90 ms |
+| Medium | 62 | 236k | 1.5 | 0.27 / 0.50 ms |
+| Low | 60 | 236k | 1 | 0.30 / 0.60 ms |
+
+Characters plus cats are ~172k of those triangles (body + outline per character), so the
+70k/120k/200k targets cannot be met without changing the frozen characters.

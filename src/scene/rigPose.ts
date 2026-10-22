@@ -143,7 +143,7 @@ export class UpperSnapshot {
   private q = UPPER.map(() => new THREE.Quaternion());
   private sy = 1;
   capture(rig: CharacterRig) {
-    UPPER.forEach((n, i) => this.q[i].copy(rig.bones[n].quaternion));
+    for (let i = 0; i < UPPER.length; i++) this.q[i].copy(rig.bones[UPPER[i]].quaternion);
     this.sy = rig.bones.torso.scale.y;
   }
   /** Put the arms back exactly as the seated system had them. */
@@ -153,7 +153,7 @@ export class UpperSnapshot {
   /** Bones currently hold our pose; move them toward the snapshot by w (1 = snapshot). */
   blend(rig: CharacterRig, w: number) {
     if (w <= 0) return;
-    UPPER.forEach((n, i) => rig.bones[n].quaternion.slerp(this.q[i], w));
+    for (let i = 0; i < UPPER.length; i++) rig.bones[UPPER[i]].quaternion.slerp(this.q[i], w);
     rig.bones.torso.scale.y += (this.sy - rig.bones.torso.scale.y) * w;
   }
 }

@@ -10,9 +10,10 @@ import { buildRoom } from './room';
 import { createCrowd, type Crowd, type LabAction, type Occupant } from './agents';
 import { lightRig, patchLighting, stUniforms } from './envMaterial';
 import { blendAtmo, createAtmo, type TimeOfDay, type Weather } from './atmosphere';
-import { createQuality, type QualityStats, type Tier, type TierChoice } from './quality';
+import { createQuality, type QualityManager, type QualityStats, type Tier, type TierChoice } from './quality';
 import { createCameraRig, type CameraView } from './camera';
 import { createMotes, createSteam } from './ambient';
+import { createCats } from './cats';
 import { MAX_SLOTS, NAV_EDGES, NAV_NODES, SPOTS, type SlotStatus } from './hall';
 
 export type { Status } from './character';
@@ -53,6 +54,8 @@ export interface SceneDebug {
   lab(slot: number, action: LabAction): void;
   /** One line per slot describing what the agent is doing. */
   agents(): string[];
+  /** Render `frames` frames at `w`×`h` CSS px with a GPU sync each; per-frame ms, draw calls, triangles. */
+  bench(frames: number, w: number, h: number): { avg: number; p95: number; calls: number; triangles: number; dpr: number };
   /** Waypoint graph / lamp-state overlays. */
   overlay(kind: 'graph' | 'lamps', on: boolean): void;
   /** Render from an arbitrary viewpoint (close-ups in the lab). */
@@ -73,6 +76,8 @@ export interface StudySceneHandle {
   setQuality(q: TierChoice): void;
   resetView(): void;
   dispose(): void;
+  /** Tier manager: getTier / setTier / subscribe, the choice persisted locally. */
+  quality: QualityManager;
   debug: SceneDebug;
 }
 
@@ -97,6 +102,8 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
   renderer.domElement.className = 'scene-canvas';
+  // Count the shadow pass too (three resets the counters after rendering shadows otherwise).
+  renderer.info.autoReset = false;
   container.appendChild(renderer.domElement);
   const labelLayer = document.createElement('div');
   labelLayer.className = 'scene-labels';
@@ -120,13 +127,15 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
 
   // The characters (frozen) get the room's lamps and window light on their own materials.
   const cm = charMaterials();
-  patchLighting(cm.toon);
-  Object.values(faceKit(cm.gradient).mats).forEach(patchLighting);
-  patchLighting(materials().toon);
+  patchLighting(cm.toon, true);
+  Object.values(faceKit(cm.gradient).mats).forEach((m) => patchLighting(m, true));
+  patchLighting(materials().toon, true);
 
   const room = buildRoom();
   scene.add(room.group);
   const crowd = createCrowd(room);
+  const cats = createCats();
+  scene.add(cats.group);
   const steam = createSteam(MAX_SLOTS);
   const motes = createMotes(atmo.sunDir.clone());
   scene.add(steam.points, motes.points);
@@ -202,6 +211,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     lightRig.sunDir.copy(atmo.sunDir);
     stUniforms.stWin.value.w = atmo.sunSoft;
     fill.color.copy(atmo.fill); fill.intensity = atmo.fillI;
+    stUniforms.stCharFill.value.copy(atmo.charFillC).multiplyScalar(atmo.charFill);
     (scene.background as THREE.Color).copy(atmo.bg);
     const u = room.window.uniforms;
     u.uSkyTop.value.copy(atmo.skyTop); u.uSkyBot.value.copy(atmo.skyBot);
@@ -261,6 +271,28 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     commit();
   }
 
+  // Soft floor shadows that move: chairs, people on their feet, the black cat.
+  const blobAttr = room.blobs.geometry.getAttribute('aStr') as THREE.InstancedBufferAttribute;
+  const firstBlob = room.blobs.userData.first as number;
+  const bm = new THREE.Matrix4();
+  function blob(i: number, x: number, z: number, r: number, k: number) {
+    room.blobs.setMatrixAt(firstBlob + i, bm.makeScale(r, 1, r).setPosition(x, 0.032, z));
+    blobAttr.setX(firstBlob + i, k);
+  }
+  function updateBlobs() {
+    const movers = crowd.movers();
+    for (let i = 0; i < MAX_SLOTS; i++) {
+      const s = room.seats[i], a = s.anchor;
+      blob(i, a.position.x + Math.sin(a.rotation.y) * s.chair.offset, a.position.z + Math.cos(a.rotation.y) * s.chair.offset, 0.75, 0.32);
+      const m = movers[i];
+      if (m) blob(MAX_SLOTS + i, m.x, m.z, 0.62, 0.34); else blob(MAX_SLOTS + i, 0, -99, 0, 0);
+    }
+    const cs = cats.shadows();
+    blob(MAX_SLOTS * 2, cs[0][0], cs[0][1], 0.5, 0.3);
+    room.blobs.instanceMatrix.needsUpdate = true;
+    blobAttr.needsUpdate = true;
+  }
+
   // ---- loop ------------------------------------------------------------------------
   let raf = 0, prev = 0, lastRender = 0, acc = 0, simT = 0, speed = 1;
   const v = new THREE.Vector3();
@@ -278,7 +310,9 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     const ambientT = still ? simT * 0.3 : simT;
     room.window.uniforms.uTime.value = ambientT;
     crowd.update(simT, frameDt, camera.position);
+    cats.update(simT, frameDt, crowd.movers(), crowd.sofaGuests());
     room.update(simT, frameDt, atmo);
+    updateBlobs();
     for (let i = 0; i < MAX_SLOTS; i++) {
       const s = room.seats[i];
       if (s.kit.visible && occ[i] && occ[i]!.status !== 'away') steam.setSource(i, mugW.setFromMatrixPosition(s.mug.matrixWorld).setY(mugW.y + 0.11));
@@ -287,6 +321,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     steam.update(ambientT);
     motes.update(ambientT, atmo.motes, atmo.sun);
     camRig.update(frameDt, simT, still);
+    renderer.info.reset();
     renderer.render(scene, camera);
     drawLampTags();
     if (labelsVisible) {
@@ -359,8 +394,8 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     }
     let ms = ts - prev;
     prev = ts;
+    quality.frame(ms, ts / 1000); // ignores stalls over 250 ms
     if (ms > 250) ms = 1000 / 60; // hidden or stalled: don't fast-forward
-    quality.frame(ms, ts / 1000);
     const dt = Math.min(ms / 1000, 0.1) * speed;
     acc += dt;
     while (acc >= FIXED) { acc -= FIXED; simT += FIXED; crowd.step(simT, FIXED); }
@@ -415,6 +450,29 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
       const n = Math.round(sec / FIXED);
       for (let i = 0; i < n; i++) { simT += FIXED; crowd.step(simT, FIXED); render(FIXED); }
     },
+    bench(frames, w, h) {
+      const pw = width, ph = height;
+      width = w; height = h;
+      applyQuality();
+      camRig.resize(w, h);
+      const gl = renderer.getContext();
+      const times: number[] = [];
+      let calls = 0, tris = 0;
+      for (let i = 0; i < frames; i++) {
+        const t0 = performance.now();
+        simT += FIXED; crowd.step(simT, FIXED);
+        render(FIXED);
+        gl.finish();
+        times.push(performance.now() - t0);
+        calls = renderer.info.render.calls; tris = renderer.info.render.triangles;
+      }
+      times.sort((a, b) => a - b);
+      const benchDpr = dpr;
+      width = pw; height = ph;
+      applyQuality();
+      camRig.resize(pw, ph);
+      return { avg: times.reduce((a, b) => a + b, 0) / frames, p95: times[Math.floor(frames * 0.95)], calls, triangles: tris, dpr: benchDpr };
+    },
     lab: (slot, a) => crowd.lab(slot, a),
     overlay,
     agents: () => Array.from({ length: MAX_SLOTS }, (_, i) => crowd.debug(i)),
@@ -441,6 +499,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
       unsubQ();
       camRig.dispose();
       crowd.dispose();
+      cats.dispose();
       room.dispose();
       steam.dispose();
       motes.dispose();
@@ -452,6 +511,7 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
       labelLayer.remove();
       hud?.remove();
     },
+    quality,
     debug,
   };
 }

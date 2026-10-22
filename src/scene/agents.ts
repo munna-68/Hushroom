@@ -119,6 +119,7 @@ class Agent {
   private arrive: Arrive = 'none';
   private faceEnd: number | null = null;
   private blocked = 0;
+  private pulling = false;
   private side = 1;
   // Chair: 0 seated … 1 standing in front of it.
   private u = 0;
@@ -460,6 +461,16 @@ class Agent {
     const dx = tgt.x - this.pos.x, dz = tgt.y - this.pos.y;
     const d = Math.hypot(dx, dz);
     const last = this.pi === P.length - 1;
+    // A chair that was pushed in gets pulled out before stepping in front of it.
+    this.pulling = false;
+    if (last && this.arrive === 'seat' && this.chairOff > CHAIR_BACK + 0.02) {
+      this.pulling = true;
+      this.speed = 0;
+      this.chairOff = Math.max(CHAIR_BACK, this.chairOff - 0.75 * dt);
+      this.chairYaw += (this.side * 0.18 - this.chairYaw) * Math.min(1, dt * 4);
+      this.heading = wrap(this.heading + THREE.MathUtils.clamp(wrap(this.seat.anchor.rotation.y + this.side * 0.9 - this.heading), -3 * dt, 3 * dt));
+      return;
+    }
     if (d < (last ? 0.04 : 0.22)) { this.pi++; return; }
     // Turn toward the target; slow down for sharp turns so nobody slides.
     const want = Math.atan2(dx, dz);
@@ -598,10 +609,11 @@ class Agent {
     this.book = free[Math.floor(this.rand() * free.length)];
     this.ctx.borrowed.add(this.book);
     this.ctx.room.books.getColorAt(this.book, _c);
-    this.ctx.room.held.closed.setColorAt(this.book >= 0 ? this.slot : 0, _c);
-    this.ctx.room.held.covers.setColorAt(this.slot, _c);
-    this.ctx.room.held.table.setColorAt(this.slot, _c);
-    for (const m of [this.ctx.room.held.closed, this.ctx.room.held.covers, this.ctx.room.held.table]) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    const held = this.ctx.room.held;
+    held.closed.setColorAt(this.slot, _c);
+    held.covers.setColorAt(this.slot, _c);
+    if (held.closed.instanceColor) held.closed.instanceColor.needsUpdate = true;
+    if (held.covers.instanceColor) held.covers.instanceColor.needsUpdate = true;
     hideBook(this.ctx.room.books, this.book, true);
     this.carry = 'book';
     this.bookOpen = instant ? 1 : 0;
@@ -657,8 +669,8 @@ class Agent {
         break;
       }
       case 'chair': {
-        const r = this.chairPose(t, g);
-        lz = r.lz; ly = r.ly;
+        this.chairPose(t, g);
+        lz = this.chairLz; ly = this.chairLy;
         useChar = 1 - seg(this.u, 0.02, 0.22);
         expr = this.goal === 'seat' ? null : 'smile';
         break;
@@ -683,6 +695,11 @@ class Agent {
         const bob = walkPose(g, this.gait, Math.max(this.gaitAmt, Math.min(1, this.speed * 4)), t, this.ph);
         this.rootY = STAND_ROOT_Y + bob;
         this.carryPose(g, t);
+        if (this.pulling) {
+          // Reach down for the chair's top rail beside them.
+          g.armL.set(-0.22, 0.24, 0.3); g.armR.set(0.22, 0.24, 0.3);
+          g.lean = 0.22;
+        }
         this.kPose = 22;
         expr = this.goal === 'seat' ? 'focused' : 'smile';
         break;
@@ -755,8 +772,11 @@ class Agent {
 
   // ---- pose builders -------------------------------------------------------------------------------
 
-  /** Getting up / sitting down. Returns the root's seat-space z and height. */
-  private chairPose(_t: number, g: Pose): { lz: number; ly: number } {
+  private chairLz = 0;
+  private chairLy = CHAIR_ROOT_Y;
+
+  /** Getting up / sitting down; sets the root's seat-space z and height. */
+  private chairPose(_t: number, g: Pose) {
     const u = this.u;
     const a = seg(u, 0, 0.25), b = seg(u, 0.25, 0.55), c = seg(u, 0.55, 1);
     // Seated base → hands to the table edge → push back with the chair → rise.
@@ -785,10 +805,9 @@ class Agent {
     // Chair follows the scoot, then nudges back with a twist as they rise.
     this.chairOff = SCOOT * b + (CHAIR_BACK - SCOOT) * c;
     this.chairYaw = this.side * 0.22 * c;
-    const lz = SCOOT * b + (STAND_Z - SCOOT) * c;
-    const ly = CHAIR_ROOT_Y + (STAND_ROOT_Y - CHAIR_ROOT_Y) * c;
+    this.chairLz = SCOOT * b + (STAND_Z - SCOOT) * c;
+    this.chairLy = CHAIR_ROOT_Y + (STAND_ROOT_Y - CHAIR_ROOT_Y) * c;
     this.kPose = 14;
-    return { lz, ly };
   }
 
   /** Arms while walking with something. */
@@ -897,13 +916,13 @@ class Agent {
     const lie = this.lying ? seg(k, 0.5, 1) : 0;
     this.pos.set(THREE.MathUtils.lerp(ap.x, hipX, this.lying ? seg(k, 0.3, 1) : 0) + (this.lying ? 0 : 0), THREE.MathUtils.lerp(ap.y, SOFA.z + 0.02, sit));
     if (!this.lying) this.pos.x = sp.x;
-    this.rootY = THREE.MathUtils.lerp(STAND_ROOT_Y, SOFA.seat - 0.1, smooth(sit)) + 0.27 * lie;
+    this.rootY = THREE.MathUtils.lerp(STAND_ROOT_Y, SOFA.seat - 0.1, smooth(sit)) + 0.2 * lie;
     if (this.dPhase !== 'enter' || this.dT > 0.4) this.heading = wrap(this.heading + wrap(0 - this.heading) * 0.2);
     this.lieQ = this.lying && lie > 0 ? LIE_Q : null;
     if (this.lying) this.lieW = lie;
     const lt = t - this.dSubT + this.ph * 3;
     if (lie > 0) {
-      g.hipL = g.hipR = -0.12 * lie + SEAT_HIP * 0.95 * (1 - lie); g.kneeL = g.kneeR = 0.25 * lie + 1.4 * (1 - lie); g.splay = 0.02;
+      g.hipL = 0.1 * lie + SEAT_HIP * 0.95 * (1 - lie); g.hipR = -0.25 * lie + SEAT_HIP * 0.95 * (1 - lie); g.kneeL = 0.08 * lie + 1.4 * (1 - lie); g.kneeR = 0.55 * lie + 1.4 * (1 - lie); g.splay = 0.02;
       g.lean = 0.36 * lie; g.hp = 0.1 * lie; g.hy = 0.35 * lie; g.hr = 0.1 * lie;
     } else {
       g.hipL = g.hipR = SEAT_HIP * 0.95 * sit; g.kneeL = g.kneeR = 1.45 * sit; g.splay = 0.06 * sit;
@@ -1087,19 +1106,17 @@ class Agent {
         _m.compose(_v, _q, _s.set(1, 1, 1));
         hc.setMatrixAt(s, _m); hcv.setMatrixAt(s, ZERO); hp.setMatrixAt(s, ZERO);
       }
-    } else { hc.setMatrixAt(s, ZERO); hcv.setMatrixAt(s, ZERO); hp.setMatrixAt(s, ZERO); }
-    // Borrowed book on the table while seated.
-    const ht = room.held.table;
-    if (this.bookOnTable >= 0 && this.seat.kit.visible) {
-      _v.set(0.12, TABLE_TOP + 0.021, 0.84);
+    } else if (this.bookOnTable >= 0 && this.seat.kit.visible) {
+      // The book brought back lies open on the table at their seat.
+      _v.set(0.06, TABLE_TOP + 0.012, 0.8);
       this.seat.anchor.localToWorld(_v);
-      _q.setFromAxisAngle(_Y, this.seat.anchor.rotation.y + 0.25 + (this.slot % 3) * 0.1);
+      _q.setFromAxisAngle(_Y, this.seat.anchor.rotation.y + Math.PI + (this.slot % 3 - 1) * 0.12);
       _q2.setFromEuler(_e.set(-Math.PI / 2, 0, 0));
       _q.multiply(_q2);
-      _m.compose(_v, _q, _s.set(1, 1, 1));
-      ht.setMatrixAt(s, _m);
-    } else ht.setMatrixAt(s, ZERO);
-    hc.instanceMatrix.needsUpdate = hcv.instanceMatrix.needsUpdate = hp.instanceMatrix.needsUpdate = ht.instanceMatrix.needsUpdate = true;
+      _m.compose(_v, _q, _s.set(1.15, 1.15, 0.5));
+      hcv.setMatrixAt(s, _m); hp.setMatrixAt(s, _m); hc.setMatrixAt(s, ZERO);
+    } else { hc.setMatrixAt(s, ZERO); hcv.setMatrixAt(s, ZERO); hp.setMatrixAt(s, ZERO); }
+    hc.instanceMatrix.needsUpdate = hcv.instanceMatrix.needsUpdate = hp.instanceMatrix.needsUpdate = true;
     void t;
   }
 
@@ -1216,6 +1233,7 @@ export function createCrowd(room: RoomBuild): Crowd {
   const guests: THREE.Vector3[] = [];
   const guestVecs = agents.map(() => new THREE.Vector3());
   const camDist = new Float32Array(MAX_SLOTS);
+  const sorted = new Float32Array(MAX_SLOTS);
   const door = room.door;
   let doorOpen = 0;
 
@@ -1243,7 +1261,7 @@ export function createCrowd(room: RoomBuild): Crowd {
       frame++;
       for (let i = 0; i < MAX_SLOTS; i++) camDist[i] = camPos.distanceToSquared(room.seats[i].anchor.position);
       let median = 0;
-      if (halfRate) { const sorted = Array.from(camDist).sort((x, y) => x - y); median = sorted[4]; }
+      if (halfRate) { sorted.set(camDist); sorted.sort(); median = sorted[MAX_SLOTS >> 1]; }
       for (let i = 0; i < MAX_SLOTS; i++) {
         const a = agents[i];
         // Low tier: the far half of the room animates at half rate.

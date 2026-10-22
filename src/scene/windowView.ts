@@ -42,22 +42,22 @@ function paintTrees(): HTMLCanvasElement {
   const g = c.getContext('2d')!;
   g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
   const r = rng(19);
-  const trees = 7;
+  const trees = 9;
   for (let t = 0; t < trees; t++) {
-    const cx = (t + 0.15 + r() * 0.7) * (W / trees), top = 150 + r() * 120;
+    const cx = (t + 0.15 + r() * 0.7) * (W / trees), top = 170 + r() * 110;
     g.fillStyle = 'rgb(0,0,255)';
     g.beginPath(); g.moveTo(cx - 9, H); g.lineTo(cx - 5, top + 150); g.lineTo(cx + 5, top + 150); g.lineTo(cx + 9, H); g.fill();
     // Crown: back blobs first (darker), front blobs last; each blob lit from the upper left.
-    const blobs = 18 + Math.floor(r() * 8);
+    const blobs = 34 + Math.floor(r() * 10);
     for (let k = 0; k < blobs; k++) {
       const f = k / blobs;
-      const bx = cx + (r() - 0.5) * 190, by = top + 30 + r() * 170 + f * 20, br = 26 + r() * 30;
+      const bx = cx + (r() - 0.5) * 170, by = top + 20 + r() * 160 + f * 20, br = 14 + r() * 18;
       const base = 40 + f * 90;
       const grd = g.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.05, bx, by, br);
       grd.addColorStop(0, `rgb(255,${Math.min(255, base + 150)},0)`);
       grd.addColorStop(0.55, `rgb(255,${base + 40},0)`);
-      grd.addColorStop(0.9, `rgb(255,${base * 0.5},0)`);
-      grd.addColorStop(1, `rgba(255,${base * 0.5},0,0)`);
+      grd.addColorStop(0.9, `rgb(255,${base * 0.8},0)`);
+      grd.addColorStop(1, `rgba(255,${base * 0.8},0,0)`);
       g.fillStyle = grd;
       g.beginPath(); g.arc(bx, by, br, 0, Math.PI * 2); g.fill();
     }
@@ -166,7 +166,7 @@ export function buildWindowView(z0: number, z1: number, y0: number, y1: number, 
         vec3 t = texture2D(uTrees, uvT).rgb;
         float tm = smoothstep(0.3, 0.7, t.r) * step(uvT.y, 1.0);
         vec3 tree = mix(uTreeCol, uTreeLit, smoothstep(0.1, 0.95, t.g));
-        tree = mix(tree, col, uCityHaze * 0.22);
+        tree = mix(tree, col, uCityHaze * 0.42);
         col = mix(col, tree, tm);
         col = mix(col, uTreeCol * 0.7, t.b * (1.0 - tm) * step(uvT.y, 1.0));
         // rain: grey veil, streaks outside, drops on the glass

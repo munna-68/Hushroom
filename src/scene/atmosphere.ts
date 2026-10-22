@@ -19,6 +19,8 @@ export interface Atmo {
   pendant: number;
   spill: THREE.Color; spillI: number;
   beam: number; motes: number;
+  /** Soft fill on characters only (keeps their outlines reading as darker lines). */
+  charFill: number; charFillC: THREE.Color;
   bg: THREE.Color;
 }
 
@@ -42,6 +44,7 @@ const DAY_CLEAR: Raw = {
   pendant: 0.45,
   spill: '#ffd9a6', spillI: 2.2,
   beam: 1, motes: 1,
+  charFill: 0.04, charFillC: '#ffe6c8',
   bg: '#3a2418',
 };
 
@@ -57,6 +60,7 @@ const DAY_RAIN: Raw = {
   pendant: 0.8,
   spill: '#cfdcec', spillI: 1.7,
   beam: 0.12, motes: 0.15,
+  charFill: 0.12, charFillC: '#e6e9ef',
   bg: '#262a30',
 };
 
@@ -72,21 +76,23 @@ const NIGHT_CLEAR: Raw = {
   pendant: 1,
   spill: '#6d8cc4', spillI: 1.2,
   beam: 0, motes: 0,
+  charFill: 0.3, charFillC: '#c9cfe0',
   bg: '#0b1322',
 };
 
 const NIGHT_RAIN: Raw = {
   sun: '#86a4d6', sunI: 0.55, sunDir: dir(28, 42), sunSoft: 0.1,
-  fill: '#7f86a8', fillI: 0.36,
-  hemiSky: '#5a6f96', hemiGround: '#4a3036', hemiI: 1.75,
-  skyTop: '#263c5a', skyBot: '#46668a', sunGlow: '#9fb4d6', sunGlowAmt: 0.12,
-  city: '#24344a', cityHaze: 0.5, cityLights: 0.6, stars: 0,
+  fill: '#7f86a8', fillI: 0.3,
+  hemiSky: '#4f7590', hemiGround: '#4a2f3a', hemiI: 1.55,
+  skyTop: '#22384f', skyBot: '#3e5f7c', sunGlow: '#9fb4d6', sunGlowAmt: 0.12,
+  city: '#1f2f42', cityHaze: 0.55, cityLights: 0.42, stars: 0,
   tree: '#253440', treeLit: '#344654', glass: '#8fa9cc',
   rain: 1,
   lampLight: 1.4, lampGlow: 1, lampEmit: 1,
   pendant: 1,
   spill: '#5f80b4', spillI: 1.25,
   beam: 0, motes: 0,
+  charFill: 0.32, charFillC: '#c9cfe0',
   bg: '#0b1322',
 };
 

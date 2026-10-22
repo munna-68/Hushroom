@@ -63,11 +63,7 @@ export function mountSceneLab(el: HTMLElement) {
   r = row();
   btn(r, 'Fill (all focus)', () => { people.forEach((p) => { p.status = 'focus'; }); push(); });
   btn(r, 'Empty', () => { people.forEach((p) => { p.status = 'empty'; }); push(); });
-  btn(r, 'Reference mix', () => {
-    const st: SlotStatus[] = ['focus', 'focus', 'focus', 'empty', 'empty', 'focus', 'focus', 'focus'];
-    people.forEach((p, i) => { p.status = st[i]; });
-    push();
-  });
+  btn(r, 'Reference moment', () => refMoment());
 
   h('Slot');
   let slot = 0;
@@ -139,16 +135,21 @@ export function mountSceneLab(el: HTMLElement) {
     const url = scene.debug.captureFrom(eye, target, fov, w, hh);
     await fetch(`/__shot?name=${encodeURIComponent(name)}`, { method: 'POST', body: url }).catch(() => {});
   };
-  /** Reference pair: day/clear and night/rain at the reference size with the reference occupancy. */
-  const pair = async (name: string, w = 1672, hh = 941) => {
-    const st: SlotStatus[] = ['focus', 'focus', 'focus', 'empty', 'empty', 'focus', 'focus', 'focus'];
-    people.forEach((p, i) => { p.status = st[i]; });
+  /** The reference moment: three people on breaks (shelf, window stool, sofa), the rest at the table. */
+  const refMoment = () => {
+    people.forEach((p) => { p.status = 'focus'; });
     push();
-    scene.debug.step(1.2);
+    scene.debug.step(0.5);
+    scene.debug.lab(3, 'shelf'); scene.debug.lab(4, 'window'); scene.debug.lab(6, 'sofa');
+    for (let k = 0; k < 40; k++) scene.debug.step(0.5);
+  };
+  /** Reference pair: day/clear and night/rain at the reference size in the reference moment. */
+  const pair = async (name: string, w = 1672, hh = 941) => {
+    refMoment();
     scene.setTimeOfDay('day'); scene.setWeather('clear');
     await shot(`${name}-day`, w, hh);
     scene.setTimeOfDay('night'); scene.setWeather('rain');
     await shot(`${name}-night`, w, hh);
   };
-  (window as unknown as { __lab: unknown }).__lab = { scene, people, push, shot, pair, closeup, setSlot: (i: number) => { slot = i; mark(); } };
+  (window as unknown as { __lab: unknown }).__lab = { scene, people, push, shot, pair, closeup, refMoment, setSlot: (i: number) => { slot = i; mark(); } };
 }

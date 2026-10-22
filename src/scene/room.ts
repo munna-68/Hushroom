@@ -50,9 +50,9 @@ export interface RoomBuild {
   door: THREE.Group;
   /** Dynamic floor shadows: index → [x, z, radius, strength]; the scene fills these. */
   blobs: THREE.InstancedMesh;
-  /** Shelf books (instanced) and the per-slot pools for books carried, read open, left on the table. */
+  /** Shelf books (instanced) and the per-slot pools for books carried closed or open (in hands or on the table). */
   books: THREE.InstancedMesh;
-  held: { closed: THREE.InstancedMesh; covers: THREE.InstancedMesh; pages: THREE.InstancedMesh; table: THREE.InstancedMesh };
+  held: { closed: THREE.InstancedMesh; covers: THREE.InstancedMesh; pages: THREE.InstancedMesh };
   update(t: number, dt: number, atmo: Atmo): void;
   setQuality(s: TierSettings): void;
   /** Pixels per world unit at distance 1 (point sprite sizing). */
@@ -100,7 +100,7 @@ function plant(b: EnvBuilder, x: number, z: number, o: PlantOpts) {
     // leaf: a flattened ellipsoid pointing outward and drooping
     const ld = new THREE.Vector3(v.x, v.y * 0.35 - 0.25, v.z).normalize();
     const lc: V3 = [tip[0] + ld.x * o.leaf * 0.8, tip[1] + ld.y * o.leaf * 0.8, tip[2] + ld.z * o.leaf * 0.8];
-    b.add(sphere(1, 9, 5), greens[k % greens.length], { p: lc, r: aim(ld, r() * 0.6 - 0.3), s: [o.leaf * 0.48, o.leaf * 0.09, o.leaf] }, { sway: 0.6 + 0.6 * (1 - f) });
+    b.add(sphere(1, 7, 4), greens[k % greens.length], { p: lc, r: aim(ld, r() * 0.6 - 0.3), s: [o.leaf * 0.48, o.leaf * 0.09, o.leaf] }, { sway: 0.6 + 0.6 * (1 - f) });
   }
 }
 
@@ -138,7 +138,7 @@ function buildShell(): THREE.BufferGeometry {
       if (x1 - x0 > 0.05) {
         const k = 0.86 + r() * 0.2;
         const c = new THREE.Color(r() < 0.25 ? '#b56d3b' : '#bd7a44').multiplyScalar(k);
-        b.add(roundedBox(x1 - x0 - 0.012, 0.03, PW - 0.012, 0.006, 1), '#' + c.getHexString(), { p: [(x0 + x1) / 2, -0.015, zc] });
+        b.add(new THREE.BoxGeometry(x1 - x0 - 0.012, 0.03, PW - 0.012), '#' + c.getHexString(), { p: [(x0 + x1) / 2, -0.015, zc] });
       }
       x += len;
     }
@@ -203,7 +203,7 @@ function buildShell(): THREE.BufferGeometry {
   b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, 0.06, WALL_Z + 0.1] });
   b.add(roundedBox(0.44, 0.1, 0.2, 0.03, 1), '#e2cba4', { p: [PX, WH + 0.04, WALL_Z + 0.1] });
   // Hallway behind the door.
-  b.add(new THREE.BoxGeometry(DOOR.w + 0.6, DOOR.h + 0.4, 1.6), '#241a17', { p: [DOOR.x, DOOR.h / 2, WALL_Z - T - 0.8] });
+  b.add(new THREE.BoxGeometry(DOOR.w + 0.6, DOOR.h + 0.4, 1.6), '#3b2b22', { p: [DOOR.x, DOOR.h / 2, WALL_Z - T - 0.8] });
 
   // Stairwell: floor edge, dark teal walls going down.
   const D = 3.6;
@@ -387,12 +387,12 @@ function buildSofaCorner(b: EnvBuilder) {
   // Teal cushion at the head end, cream pillow at the far arm, knit throw over the back and arm.
   sb.add(roundedBox(0.42, 0.38, 0.15, 0.07, 2), '#2f6f69', { p: [len / 2 - 0.42, 0.6, 0.12], r: [-0.3, -0.25, -0.05] });
   sb.add(roundedBox(0.36, 0.32, 0.13, 0.06, 2), '#eadfc8', { p: [-len / 2 + 0.38, 0.58, 0.14], r: [-0.3, 0.3, 0.05] });
-  const th = '#ece2cc';
-  sb.add(roundedBox(0.62, 0.05, 0.36, 0.02, 1), th, { p: [-0.55, 0.8, 0.38], r: [0.1, 0, 0] });
-  sb.add(roundedBox(0.62, 0.42, 0.05, 0.02, 1), th, { p: [-0.55, 0.6, 0.56] });
-  sb.add(roundedBox(0.62, 0.28, 0.05, 0.02, 1), th, { p: [-0.55, 0.66, 0.2], r: [-0.25, 0, 0] });
-  for (let k = 0; k < 6; k++) sb.add(new THREE.BoxGeometry(0.012, 0.42, 0.054), '#d8ccb2', { p: [-0.8 + k * 0.1, 0.6, 0.56] });
-  for (let k = 0; k < 5; k++) sb.add(cyl(0.012, 0.012, 0.06, 5), '#e4d8bf', { p: [-0.8 + k * 0.12, 0.37, 0.585] });
+  // Knit throw draped over the far arm: across the top, down the outside, a little onto the seat.
+  const th = '#ece2cc', ax = -len / 2 + 0.1;
+  sb.add(roundedBox(0.34, 0.035, 0.52, 0.016, 2), th, { p: [ax, 0.6, -0.02] });
+  sb.add(roundedBox(0.035, 0.42, 0.52, 0.016, 2), th, { p: [ax - 0.15, 0.4, -0.02], r: [0, 0, 0.06] });
+  sb.add(roundedBox(0.2, 0.035, 0.5, 0.016, 2), th, { p: [ax + 0.24, 0.45, -0.03], r: [0, 0, -0.35] });
+  for (let k = 0; k < 5; k++) sb.add(new THREE.BoxGeometry(0.04, 0.4, 0.008), '#d6c8ad', { p: [ax - 0.168, 0.4, -0.24 + k * 0.11], r: [0, 0, 0.06] });
   b.add(sb.build(), null, { p: [x, 0, z], r: [0, Math.PI, 0] });
   // Coffee table with a plant and a closed teal book.
   const { x: cx, z: cz, r: cr } = COFFEE;
@@ -510,7 +510,9 @@ export function buildRoom(): RoomBuild {
     seatsLamp.push({ ...info, world: bw, yaw });
   }
   const furniture = new THREE.Mesh(fb.build(), furnMat);
-  furniture.castShadow = furniture.receiveShadow = true;
+  // The sun reaches the room through the window mask, which already handles the table;
+  // the merged furniture only receives (chairs, kits, people and cats cast).
+  furniture.receiveShadow = true;
   group.add(furniture);
 
   const books = buildBooks(levels);
@@ -578,7 +580,7 @@ export function buildRoom(): RoomBuild {
     });
   }
 
-  // Books in hands and borrowed books on the table: per-slot instances, hidden by a zero scale.
+  // Books in hands or brought back to the table: per-slot instances, hidden by a zero scale.
   const closedGeo = new EnvBuilder()
     .add(roundedBox(0.18, 0.25, 0.042, 0.01, 1), '#ffffff', { p: [0, 0, 0] })
     .add(new THREE.BoxGeometry(0.165, 0.235, 0.044), '#f2ead8', { p: [0.006, 0, 0] })
@@ -593,7 +595,7 @@ export function buildRoom(): RoomBuild {
     pageGeo.add(roundedBox(0.16, 0.235, 0.022, 0.004, 1), '#f6eedc', { p: [sd * 0.083 * c, 0, 0.083 * Math.abs(sn) + 0.012], r: [0, -a, 0] });
     for (let l = 0; l < 6; l++) pageGeo.add(new THREE.BoxGeometry(0.1, 0.006, 0.002), '#bfb39a', { p: [sd * 0.08 * c, 0.08 - l * 0.032, 0.08 * Math.abs(sn) + 0.024], r: [0, -a, 0] });
   }
-  const pools = { closed: closedGeo, covers: coverGeo.build(), pages: pageGeo.build(), table: closedGeo.clone() };
+  const pools = { closed: closedGeo, covers: coverGeo.build(), pages: pageGeo.build() };
   const zeroM = new THREE.Matrix4().makeScale(0, 0, 0);
   const pool = (g: THREE.BufferGeometry) => {
     const m = new THREE.InstancedMesh(g, propMat, MAX_SLOTS);
@@ -604,7 +606,7 @@ export function buildRoom(): RoomBuild {
     group.add(m);
     return m;
   };
-  const held = { closed: pool(pools.closed), covers: pool(pools.covers), pages: pool(pools.pages), table: pool(pools.table) };
+  const held = { closed: pool(pools.closed), covers: pool(pools.covers), pages: pool(pools.pages) };
 
   // Glow sprites for the lamps and the pendant (one draw).
   const glowN = MAX_SLOTS + 1;
