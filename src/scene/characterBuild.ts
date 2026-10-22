@@ -118,6 +118,8 @@ interface LockOpts {
   root?: number;
   /** Tip sharpness: lower is blunter. */
   tipPow?: number;
+  /** Pulled taut (ponytail, bun): widest at the root, thinning to the tie. */
+  pull?: boolean;
 }
 
 /**
@@ -127,7 +129,7 @@ interface LockOpts {
  */
 function lockGeo(root: V3, tip: V3, halfW: number, thick: number, hex: string, o: LockOpts = {}): THREE.BufferGeometry {
   const NP = 9, NR = 8;
-  const { lift = [0.99, 1.03], surf, bend = 0, root: r0 = 0.2, tipPow = 0.55 } = o;
+  const { lift = [0.99, 1.03], surf, bend = 0, root: r0 = 0.2, tipPow = 0.55, pull = false } = o;
   const r = new THREE.Vector3(...root).normalize(), q = new THREE.Vector3(...tip).normalize();
   const om = Math.acos(THREE.MathUtils.clamp(r.dot(q), -1, 1)) || 1e-4;
   const side = r.clone().cross(q).normalize();
@@ -142,8 +144,8 @@ function lockGeo(root: V3, tip: V3, halfW: number, thick: number, hex: string, o
     const B = n.clone().cross(T).normalize();
     // Rooted at the hairline: full width from the start, but flat there so it melts into the edge.
     const u = r0 > 0 ? r0 + (1 - r0) * t : 0.3 + 0.7 * t;
-    const prof = Math.pow(Math.sin(Math.PI * u), u < 0.5 ? 0.55 : tipPow);
-    const tp = r0 > 0 ? prof : prof * Math.sqrt(ss(0, 0.35, t));
+    const prof = pull ? 1 - 0.7 * t ** 1.3 : Math.pow(Math.sin(Math.PI * u), u < 0.5 ? 0.55 : tipPow);
+    const tp = pull ? 0.6 * Math.sqrt(ss(0, 0.3, t)) * (1 - 0.5 * t) : r0 > 0 ? prof : prof * Math.sqrt(ss(0, 0.35, t));
     const R = (surf ? Math.max(surf([n.x, n.y, n.z]), 1.02) : 1) * mix(lift[0], lift[1], t) + thick * 0.35 * tp;
     for (let j = 0; j < NR; j++) {
       const ph = (j / NR) * Math.PI * 2;
@@ -209,6 +211,19 @@ function curlGeo(rad: number, out: THREE.Vector3, hex: string): THREE.BufferGeom
   return g;
 }
 
+/** Direction at angular radius rho and angle phi round the point c (not at the pole). */
+function aroundDir(c: V3, rho: number, phi: number): V3 {
+  const n = new THREE.Vector3(...c).normalize();
+  const u = new THREE.Vector3(0, 1, 0).cross(n).normalize(), w = n.clone().cross(u);
+  return n.multiplyScalar(Math.cos(rho)).addScaledVector(u.multiplyScalar(Math.cos(phi)).addScaledVector(w, Math.sin(phi)), Math.sin(rho)).toArray() as V3;
+}
+/** A crown whorl: n short locks spiralling out from c, covering where the other locks' roots meet. */
+const whorl = (c: V3, n: number, halfW: number, thick: number, hex: (i: number) => string, o: LockOpts) =>
+  Array.from({ length: n }, (_, i) => {
+    const phi = (i / n) * PI * 2;
+    return lockGeo(aroundDir(c, 0.05, phi), aroundDir(c, 0.46, phi + 2.1), halfW, thick, hex(i + 7), { bend: 0.07, root: 0.12, ...o });
+  });
+
 /** [root az, root el, tip az, tip el, half-width, thickness, options] */
 type Lock = [number, number, number, number, number, number, LockOpts?];
 const PI = Math.PI;
@@ -222,33 +237,48 @@ const SWEPT_LOCKS: Lock[] = [
   [2.7, 1.2, -1.55, 0.05, 0.25, 0.22, { bend: 0.1 }], [-2.75, 1.15, -1.95, -0.1, 0.23, 0.2],
   [PI - 0.2, 1.42, 0.5, 1.05, 0.27, 0.24, { bend: 0.05 }], [-2.4, 1.32, -0.9, 0.72, 0.26, 0.22],
   [0.95, 1.0, 1.15, 0.28, 0.2, 0.18], [1.35, 0.95, 1.55, 0.24, 0.2, 0.18], [1.85, 1.0, 1.95, 0.08, 0.2, 0.18],
-  [2.3, 1.15, 2.3, -0.26, 0.21, 0.2], [2.75, 1.2, 2.78, -0.3, 0.21, 0.2], [PI, 1.25, PI, -0.3, 0.21, 0.2],
-  [-2.3, 1.15, -2.32, -0.24, 0.21, 0.2], [-1.6, 0.9, -1.55, -0.14, 0.21, 0.2],
+  // back, from the crown down: a long layer flicking out past the nape and a shorter
+  // staggered one on top, all curving slightly with the sweep so the hem is jagged
+  ...[2.15, 2.6, 3.05, -2.78, -2.32, -1.86].map((a, i): Lock => [a, 1.1 + 0.08 * Math.cos(a - PI), a - 0.12, [-0.3, -0.42, -0.36, -0.44, -0.32, -0.2][i], 0.21, 0.2, { bend: 0.04, lift: [0.97, 1.03] }]),
+  ...[2.38, 2.84, -2.98, -2.52, -2.06].map((a, i): Lock => [a, 1.22, a - 0.1, [-0.06, -0.14, -0.1, -0.16, -0.04][i], 0.2, 0.23, { bend: 0.04, lift: [0.98, 1.0] }]),
+  [-1.55, 0.9, -1.5, -0.14, 0.21, 0.2],
 ];
 
-// Bob: a blunt fringe and long locks falling from the crown to a rounded hem.
+// Bob: a soft fringe swept from a side parting, and broad locks falling from the
+// crown to a rounded hem that tucks under at the jaw.
 const BOB_LOCKS: Lock[] = [
-  ...[-0.62, -0.37, -0.12, 0.12, 0.37, 0.62].map((a): Lock => [a * 0.45, 1.36, a, 0.36, 0.2, 0.2, { tipPow: 0.3 }]),
-  ...mirror([1.0, 1.45, 1.9, 2.35, 2.78].map((a, i): Lock => [a, 1.5, a + 0.04, -0.72 - 0.12 * ss(1.6, 2.6, a), 0.25, 0.2 + 0.03 * (i % 2), { tipPow: 0.3 }])),
-  [PI, 1.5, PI, -0.86, 0.25, 0.22, { tipPow: 0.3 }],
+  [-0.44, 1.16, -0.7, 0.38, 0.22, 0.2, { tipPow: 0.4, lift: [0.97, 1.0] }],
+  ...[[-0.24, 0.3], [0.2, 0.25], [0.62, 0.24]].map(([ta, te], i): Lock => [-0.36, 1.22 + 0.05 * i, ta, te, 0.26, 0.22, { bend: -0.05 - 0.03 * i, tipPow: 0.4, lift: [0.97, 1.0] }]),
+  ...mirror([1.0, 1.55, 2.1, 2.62].map((a, i): Lock => [a, 1.5, a + 0.03, -0.7 - 0.12 * ss(1.6, 2.6, a), 0.3, 0.17 + 0.03 * (i % 2), { tipPow: 0.3 }])),
+  [PI, 1.5, PI, -0.84, 0.3, 0.19, { tipPow: 0.3 }],
 ];
 
-// Low ponytail: hair pulled back from the hairline to the tie at the nape.
+// Pulled-back styles (ponytail, bun) share a soft fringe swept from a parting on the
+// character's right, covering where the pulled-back locks start.
+const PULLED_FRINGE: Lock[] = [
+  [-0.5, 1.1, -0.86, 0.24, 0.22, 0.2, { bend: 0.04 }], [-0.3, 1.18, -0.36, 0.2, 0.24, 0.22, { bend: -0.06 }],
+  [-0.14, 1.22, 0.12, 0.2, 0.24, 0.22, { bend: -0.08 }], [0.02, 1.22, 0.54, 0.23, 0.24, 0.21, { bend: -0.08 }],
+  [0.16, 1.16, 0.94, 0.22, 0.22, 0.2, { bend: -0.06 }],
+];
+
+// Ponytail: hair pulled back over the top and up from the nape to a tie at the back.
+const PONY_TIE = 0.14; // tie elevation at the back of the head
 const PONY_LOCKS: Lock[] = [
-  [0, 0.75, PI, -0.12, 0.22, 0.16, { root: 0 }],
-  ...mirror([[0.5, 0.5], [0.9, 0.38], [1.25, 0.24], [1.6, 0.12], [1.98, 0.06]].map(([a, e]): Lock => [a, e, PI - 0.12, -0.18, 0.22, 0.16, { root: 0 }])),
-  // up from the nape into the tie
-  ...mirror([[2.3, -0.3], [2.75, -0.46]].map(([a, e]): Lock => [a, e, PI - 0.1, -0.26, 0.22, 0.14, { root: 0 }])),
-];
-// …and a soft side-swept fringe lying over them.
-const PONY_FRINGE: Lock[] = [
-  [-0.35, 1.0, 0.42, 0.33, 0.24, 0.16, { bend: -0.08 }], [-0.3, 0.92, 0.88, 0.26, 0.2, 0.14, { bend: -0.1 }], [-0.42, 0.92, -0.78, 0.3, 0.2, 0.14],
+  ...[-0.42, 0, 0.42].map((a): Lock => [a, 1.0, PI - a * 0.25, PONY_TIE + 0.1, 0.25, 0.2]),
+  ...mirror([
+    [1.0, 0.72, PI - 0.18, PONY_TIE + 0.06, 0.24, 0.19, {}],
+    [1.45, 0.14, PI - 0.16, PONY_TIE + 0.02, 0.22, 0.17, { root: 0 }],
+    [1.95, -0.06, PI - 0.14, PONY_TIE - 0.02, 0.22, 0.17, { root: 0 }],
+    [2.45, -0.4, PI - 0.1, PONY_TIE - 0.06, 0.22, 0.17, { root: 0 }],
+  ]),
+  [PI, -0.5, PI, PONY_TIE - 0.08, 0.22, 0.17, { root: 0 }],
 ];
 
-// Bun: hair pulled up from the hairline into the bun at the crown.
+// Bun: hair pulled up into the bun at the crown.
 const BUN_LOCKS: Lock[] = [
-  [0, 0.5, PI, 0.96, 0.22, 0.16, { root: 0 }], [PI, -0.33, PI, 0.96, 0.22, 0.16, { root: 0 }],
-  ...mirror([[0.45, 0.42], [0.9, 0.3], [1.35, 0.18], [1.8, 0.12], [2.25, -0.05], [2.7, -0.24]].map(([a, e]): Lock => [a, e, PI, 0.96, 0.22, 0.16, { root: 0 }])),
+  [0, 1.2, PI, 0.96, 0.24, 0.18], [PI, -0.33, PI, 0.96, 0.22, 0.16, { root: 0 }],
+  ...mirror([[0.45, 1.12, {}], [0.95, 0.72, {}], [1.4, 0.16, { root: 0 }], [1.85, 0.1, { root: 0 }], [2.3, -0.06, { root: 0 }], [2.75, -0.24, { root: 0 }]]
+    .map(([a, e, o]): Lock => [a as number, e as number, PI, 0.96, 0.22, 0.16, o as LockOpts])),
 ];
 
 // Tousled crop: locks fan out from a crown at the back of the head, down onto the
@@ -280,21 +310,21 @@ const HAIR_FN: Record<HairStyle, ShellFn> = {
     return [s, 0.03 + 0.05 * Math.pow(Math.max(0, y), 1.4) + roll(s)];
   },
   swept: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.14 + 0.48 * ss(-0.7, 0.75, az), az < 0 ? -0.2 : 0.18, -0.36);
+    const s = y - hairline(az, 0.14 + 0.48 * ss(-0.7, 0.75, az), az < 0 ? -0.2 : 0.18, -0.28);
     const part = 0.035 * Math.exp(-((az - 0.62) ** 2) / 0.006) * ss(0.3, 0.8, y);
     return [s, 0.07 + 0.09 * Math.max(0, y) + roll(s) + 0.07 * ss(0.5, -0.6, az) * ss(-0.1, 0.6, y) - part];
   },
   bob: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.3 - 0.03 * Math.cos(az * 3), -0.74, -0.8, 0.74, 0.88);
-    return [s, 0.085 + 0.16 * ss(0.15, -0.7, y) + roll(s)];
+    const s = y - hairline(az, 0.36, -0.74, -0.8, 0.74, 0.88);
+    return [s, 0.08 + 0.1 * ss(0.2, -0.4, y) - 0.06 * ss(-0.45, -0.8, y) + roll(s)];
   },
   ponytail: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.3 + 0.1 * Math.exp((-az * az) / 0.03), 0.02, -0.5);
-    return [s, 0.07 + 0.045 * Math.max(0, y) + roll(s)];
+    const s = y - hairline(az, 0.26, 0.02, -0.5);
+    return [s, 0.07 + 0.045 * Math.max(0, y) + 0.5 * roll(s)];
   },
   bun: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.36 + 0.06 * Math.exp((-az * az) / 0.03), 0.08, -0.42);
-    return [s, 0.075 + 0.04 * Math.max(0, y) + roll(s)];
+    const s = y - hairline(az, 0.26, 0.08, -0.42);
+    return [s, 0.075 + 0.04 * Math.max(0, y) + 0.5 * roll(s)];
   },
   curly: (_x, y, _z, az) => {
     const s = y - hairline(az, 0.4 - 0.07 * Math.pow(Math.abs(Math.cos(az * 4.5)), 2), 0.05, -0.45);
@@ -419,9 +449,12 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
       T.add(torus(0.125, 0.05, Math.PI * 2, 6, 16), shade(top, 0.94), { p: [0, 0.5, -0.015], r: [Math.PI / 2 + 0.22, 0, 0] });
       T.add(sphere(0.19, 12, 8), shade(top, 0.9), { p: [0, 0.47, -0.12], s: [1.15, 0.84, 0.62] });
       T.add(roundedBox(0.27, 0.12, 0.035, 0.03, 1), shade(top, 0.92), { p: [0, 0.13, fz(0.13) + 0.004], r: [-0.06, 0, 0] });
+      // Drawstrings: out from under the collar, lying on the chest, with the aglet on the end.
       for (const x of [-0.042, 0.042]) {
-        T.add(cyl(0.008, 0.008, 0.13, 5), STRING, { p: [x, 0.39, fz(0.39) + 0.014], r: [0.28, 0, 0] }, 0);
-        T.add(sphere(0.012, 6, 4), STRING, { p: [x, 0.325, fz(0.33) + 0.03] }, 0);
+        const pts = [0.45, 0.4, 0.35, 0.31].map((y, i) => new THREE.Vector3(x + 0.004 * i * Math.sign(x), y, fz(y) + 0.011));
+        const str = new THREE.CatmullRomCurve3(pts), end = pts[3], dir = str.getTangentAt(1);
+        T.add(new THREE.TubeGeometry(str, 8, 0.008, 5), STRING, {}, 0);
+        T.add(cap(0.0115, 0.022), STRING, { p: end.clone().addScaledVector(dir, 0.012).toArray(), r: [Math.atan2(-dir.z, -dir.y), 0, 0] }, 0);
       }
       break;
     case 'sweater':
@@ -493,6 +526,7 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
       if (!beanie) {
         CROP_LOCKS.forEach(([ra, re, ta, te, w, th, tl = 1.03], i) =>
           H.add(lockGeo(dirOf(ra, re), dirOf(ta, te), w, th, lockHex(i), { lift: [0.99, tl] }), null));
+        whorl(dirOf(PI, 1.28), 3, 0.22, 0.2, lockHex, { lift: [1.0, 1.02] }).forEach((g) => H.add(g, null));
         // A few pointed strands standing up at the crown.
         const tufts: [V3, number, number, number, number][] = [[[0.03, 0.84, -0.54], 0.075, 0.04, -1.55, 0.25], [[-0.08, 0.88, -0.47], 0.06, 0.032, -1.3, -0.45]];
         for (const [d, len, rad, rx, rz] of tufts) H.add(tuft(len * K, rad * K), hair, { p: hp(d, hairAt(d) - 0.07), r: [rx, 0, rz] });
@@ -500,13 +534,15 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
       break;
     case 'swept':
       addLocks(SWEPT_LOCKS, { surf, lift: [0.97, 0.99] });
+      whorl(dirOf(PI + 0.1, 1.24), 3, 0.22, 0.2, lockHex, { surf, lift: [0.99, 0.99] }).forEach((g) => H.add(g, null));
       break;
     case 'bob':
-      addLocks(BOB_LOCKS, { surf, lift: [0.97, 0.975] });
+      addLocks(BOB_LOCKS, { surf, lift: [0.955, 0.96] });
       break;
     case 'bun': {
       if (beanie) break;
-      addLocks(BUN_LOCKS, { surf, lift: [0.975, 0.97] });
+      addLocks(BUN_LOCKS, { surf, lift: [0.975, 0.97], pull: true });
+      addLocks(PULLED_FRINGE, { surf, lift: [0.99, 1.0] });
       // A coiled bun: two strands wound round a core, from its base up to the top.
       const ax = new THREE.Vector3(0, 0.82, -0.57).normalize();
       const C = new THREE.Vector3(...hp([0, 0.82, -0.57], 1.2)), rb = 0.135 * K;
@@ -525,22 +561,26 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
       break;
     }
     case 'ponytail': {
-      addLocks(PONY_LOCKS, { surf, lift: [0.975, 0.97] });
-      if (!beanie) addLocks(PONY_FRINGE, { surf, lift: [0.99, 1.0] });
-      // The tail: a bundle of strands hanging down and back from the tie, twisting a little.
-      const base = new THREE.Vector3(...hp([0, -0.3, -0.95], 1.04)).add(new THREE.Vector3(0, 0, -0.02));
-      const axis = (t: number) => base.clone().add(new THREE.Vector3(0.025 * Math.sin(PI * t), -0.34 * t, -0.11 * t - 0.05 * Math.sin(PI * t)));
-      const e1 = new THREE.Vector3(1, 0, 0), e2 = new THREE.Vector3(0, -0.35, 0.94);
-      const strands = [[0, 0.045], ...[0, 1, 2, 3, 4].map((k) => [(k / 5) * PI * 2 + 0.4, 0.04])];
+      addLocks(PONY_LOCKS, { surf, lift: [0.975, 0.97], pull: true });
+      if (!beanie) addLocks(PULLED_FRINGE, { surf, lift: [0.99, 1.0] });
+      // The tail: a bundle of strands kicking out from the tie, then hanging and twisting a little.
+      const td = dirOf(PI, PONY_TIE), base = new THREE.Vector3(...hp(td, hairAt(td) + 0.02));
+      const axisC = new THREE.CatmullRomCurve3([[0, 0, 0], [0.012, 0, -0.08], [0.06, -0.08, -0.16], [0.085, -0.2, -0.15], [0.07, -0.32, -0.1]]
+        .map(([x, y, z]) => base.clone().add(new THREE.Vector3(x, y, z))));
+      const axis = (t: number) => axisC.getPointAt(t);
+      const ex = new THREE.Vector3(1, 0, 0), tg = new THREE.Vector3();
+      const strands = [[0, 0.024], ...[0, 1, 2].map((k) => [(k / 3) * PI * 2 + 0.4, 0.034])];
       strands.forEach(([a0, r], i) => {
-        const off = i ? 0.042 : 0;
-        const pts: V3[] = [0, 0.15, 0.32, 0.5, 0.68, 0.85, 1].map((t) => {
-          const a = a0 + 0.9 * t, o = off * Math.sin(PI * Math.min(1, 0.12 + t * 1.05));
+        const off = i ? 0.044 : 0;
+        const pts: V3[] = [0, 0.12, 0.26, 0.42, 0.58, 0.74, 0.88, 1].map((t) => {
+          const a = a0 + 1.3 * t, o = off * Math.sin(PI * Math.min(1, 0.14 + t * 1.0));
+          axisC.getTangentAt(t, tg);
+          const e2 = tg.clone().cross(ex).normalize(), e1 = e2.clone().cross(tg).normalize();
           return axis(t).addScaledVector(e1, Math.cos(a) * o).addScaledVector(e2, Math.sin(a) * o).toArray() as V3;
         });
-        H.add(strandGeo(pts, (t) => r * K * Math.pow(Math.sin(PI * (0.06 + 0.94 * t)), 0.5) * (1 - 0.25 * t), lockHex(i), axis), null);
+        H.add(strandGeo(pts, (t) => r * K * Math.pow(Math.sin(PI * (0.08 + 0.92 * t)), 0.55) * (1 - 0.2 * t), lockHex(i + 2), axis, 20), null);
       });
-      H.add(torus(0.05, 0.02, PI * 2, 6, 14), shade(hair, 0.62), { p: [0, base.y - 0.005, base.z], r: [PI / 2 + 0.38, 0, 0] }, 0);
+      H.add(torus(0.046, 0.019, PI * 2, 6, 14), shade(hair, 0.62), { p: base.clone().add(new THREE.Vector3(0, -0.004, -0.018)).toArray(), r: [-0.2, 0, 0] }, 0);
       break;
     }
     case 'curly': {
@@ -554,6 +594,9 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
         const rad = (0.082 + 0.012 * Math.sin(i * 1.7)) * K;
         H.add(curlGeo(rad, new THREE.Vector3(...d), lockHex(i)), null, { p: hp(d, hairAt(d) - 0.05) });
       }
+      // One more on the front of the hairline, where the spiral leaves a gap over the face.
+      const df = dirOf(-0.08, 0.52);
+      if (!beanie) H.add(curlGeo(0.09 * K, new THREE.Vector3(...df), lockHex(3)), null, { p: hp(df, hairAt(df) - 0.04) });
       break;
     }
   }
