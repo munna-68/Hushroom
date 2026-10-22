@@ -164,6 +164,7 @@ export class Character {
   private mugOffK = 0;
   private bookPos = new THREE.Vector3();
   private bookRotX = 0;
+  private forced: string | null = null;
 
   constructor(v: AvatarVariant, opts: { chair?: boolean; seed?: number; standing?: boolean } = {}) {
     this.variant = v;
@@ -224,6 +225,9 @@ export class Character {
     this.started = false;
   }
 
+  /** Dev: jump straight into an act (or 'page' to turn a page) on the next update. */
+  play(name: string) { this.forced = name; }
+
   /** Static pose for thumbnails. */
   posePortrait() {
     this.act = 'idle';
@@ -273,6 +277,20 @@ export class Character {
   }
 
   private pickAct(now: number) {
+    if (this.forced) {
+      const f = this.forced;
+      this.forced = null;
+      if (f === 'page') { this.nextPage = now; return; }
+      if (BREAK_ACTS.includes(f as BreakAct)) {
+        this.status = 'break'; this.mode = 'break'; this.dir = this.rand() < 0.5 ? -1 : 1;
+        const [base, spread] = BREAK_DUR[f as BreakAct];
+        this.setAct(f as Act, now, base + spread * 0.5);
+      } else if (!this.chair) {
+        this.status = 'focusing'; this.mode = 'focus';
+        this.setAct(f as Act, now, f === 'sip' ? SIP_T : f === 'think' ? 5 : f === 'neck' ? 3.4 : 1e9);
+      }
+      return;
+    }
     if (this.chair) { if (this.act !== 'chairRead') this.setAct('chairRead', now, 1e9); return; }
     const want = this.status === 'break' ? 'break' : 'focus';
     if (want !== this.mode) {
@@ -329,7 +347,7 @@ export class Character {
     this.expr = null;
     this.kBody = 4;
     this.breath = 1.7; this.breathAmp = 0.012;
-    this.sway.t = 0; this.yaw.t = 0;
+    this.sway.t = 0; this.yaw.t = 0; this.lean.t = 0; this.hp.t = 0.1; this.hy.t = 0;
     L.o.set(0, 0, 0); R.o.set(0, 0, 0);
     L.direct = R.direct = false;
     L.k = R.k = 8;
