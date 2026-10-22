@@ -1,34 +1,57 @@
-// Character variants. The same list drives the avatar picker and the 3D builder.
-export type HairStyle = 'bob' | 'short' | 'bun' | 'curly' | 'long' | 'spiky' | 'beanie';
-export type TopStyle = 'hoodie' | 'sweater';
-export type Accessory = 'none' | 'glasses' | 'headphones' | 'clip' | 'scarf';
+// Character specs. The same list drives the avatar picker and the 3D builder.
+// Palettes are sampled from the swatch rows of docs/character-sheet.png.
+
+export const SKIN = ['#f1c6a5', '#e2b18f', '#d59f7d', '#c68a65', '#b87c57', '#a56c52', '#6e4430', '#482e24'];
+export const HAIR = ['#3e3330', '#51362a', '#754934', '#946140', '#d9b38e', '#a68169', '#3b424f', '#c0624b'];
+export const OUTFIT = ['#ebd4b9', '#798475', '#456360', '#3f4e44', '#b76548', '#c87966', '#617b92', '#6a495d'];
+/** Trousers, sampled from the sheet's figures (denim, charcoal, beige, plum, navy). */
+export const PANTS = ['#55627a', '#49454b', '#d8c7a8', '#64434e', '#3f4a5c'];
+
+export type HairStyle = 'crop' | 'swept' | 'bob' | 'ponytail' | 'bun' | 'curly';
+export type Outfit = 'hoodie' | 'sweater' | 'cardigan' | 'track' | 'sweatshirt' | 'vest';
+export type Accessory = 'glasses' | 'headphones' | 'beanie' | 'clips' | 'scarf' | 'backpack';
+export type Expression = 'focused' | 'smile' | 'sleepy' | 'blink' | 'surprised' | 'annoyed' | 'exhausted' | 'determined';
+
+export const HAIR_STYLES: HairStyle[] = ['crop', 'swept', 'bob', 'ponytail', 'bun', 'curly'];
+export const OUTFITS: Outfit[] = ['hoodie', 'sweater', 'cardigan', 'track', 'sweatshirt', 'vest'];
+export const ACCESSORIES: Accessory[] = ['glasses', 'headphones', 'beanie', 'clips', 'scarf', 'backpack'];
+export const EXPRESSIONS: Expression[] = ['focused', 'smile', 'sleepy', 'blink', 'surprised', 'annoyed', 'exhausted', 'determined'];
+
+export interface CharacterSpec {
+  hair: HairStyle;
+  hairColor: number; // index into HAIR
+  skin: number; // index into SKIN
+  outfit: Outfit;
+  outfitColor: number; // index into OUTFIT
+  pants: number; // index into PANTS
+  accessories: Accessory[];
+  /** Resting focus face; status drives the rest. */
+  expression: Expression;
+}
 
 export interface AvatarVariant {
   id: number;
   label: string;
-  hair: HairStyle;
-  hairColor: string;
-  skin: string;
-  top: TopStyle;
-  topColor: string;
-  trimColor: string;
-  accessory: Accessory;
-  accColor: string;
+  spec: CharacterSpec;
 }
 
+const S = (hair: HairStyle, hairColor: number, skin: number, outfit: Outfit, outfitColor: number, pants: number, accessories: Accessory[], expression: Expression = 'focused'): CharacterSpec =>
+  ({ hair, hairColor, skin, outfit, outfitColor, pants, accessories, expression });
+
 export const AVATARS: AvatarVariant[] = [
-  { id: 0, label: 'Bob, mustard hoodie', hair: 'bob', hairColor: '#2b1d1a', skin: '#f6d2b5', top: 'hoodie', topColor: '#e3a948', trimColor: '#f7e7c6', accessory: 'headphones', accColor: '#3d7f86' },
-  { id: 1, label: 'Curls, sage sweater', hair: 'curly', hairColor: '#3a2418', skin: '#9c6644', top: 'sweater', topColor: '#7fa38a', trimColor: '#e9e1cc', accessory: 'glasses', accColor: '#2a1c16' },
-  { id: 2, label: 'Bun, rose hoodie', hair: 'bun', hairColor: '#5b3426', skin: '#ffdcc2', top: 'hoodie', topColor: '#d97a76', trimColor: '#fbe3d8', accessory: 'clip', accColor: '#f2b45a' },
-  { id: 3, label: 'Short, navy sweater', hair: 'short', hairColor: '#1c1716', skin: '#c68c64', top: 'sweater', topColor: '#33507a', trimColor: '#d9c9a5', accessory: 'none', accColor: '#000000' },
-  { id: 4, label: 'Long, lilac hoodie', hair: 'long', hairColor: '#20161a', skin: '#efc6a3', top: 'hoodie', topColor: '#9a86c4', trimColor: '#efe8f8', accessory: 'scarf', accColor: '#e7c76a' },
-  { id: 5, label: 'Beanie, teal hoodie', hair: 'beanie', hairColor: '#4a2d20', skin: '#7a4b31', top: 'hoodie', topColor: '#2f8f8a', trimColor: '#d8efe7', accessory: 'none', accColor: '#e0673f' },
-  { id: 6, label: 'Spiky, cream sweater', hair: 'spiky', hairColor: '#7a4a2a', skin: '#f3c9a8', top: 'sweater', topColor: '#e8dcc2', trimColor: '#b6584a', accessory: 'glasses', accColor: '#3a2a20' },
-  { id: 7, label: 'Bob, plum sweater', hair: 'bob', hairColor: '#c76b3e', skin: '#fde3cf', top: 'sweater', topColor: '#6e3d5c', trimColor: '#f0c9a0', accessory: 'clip', accColor: '#7fd1c1' },
-  { id: 8, label: 'Curls, coral hoodie', hair: 'curly', hairColor: '#120e10', skin: '#5e3a28', top: 'hoodie', topColor: '#e8835a', trimColor: '#fde7d4', accessory: 'headphones', accColor: '#f4efe4' },
-  { id: 9, label: 'Short, forest hoodie', hair: 'short', hairColor: '#d7b37a', skin: '#ffe2cc', top: 'hoodie', topColor: '#3f6b4c', trimColor: '#e8e2c8', accessory: 'scarf', accColor: '#c94f4f' },
+  { id: 0, label: 'Short crop, sage hoodie', spec: S('crop', 0, 1, 'hoodie', 1, 0, []) },
+  { id: 1, label: 'Curls, glasses and backpack', spec: S('curly', 0, 6, 'hoodie', 1, 0, ['glasses', 'backpack'], 'determined') },
+  { id: 2, label: 'Low ponytail, rust cardigan', spec: S('ponytail', 2, 0, 'cardigan', 4, 1, ['headphones']) },
+  { id: 3, label: 'Curls in a beanie, track jacket', spec: S('curly', 1, 7, 'track', 2, 3, ['beanie'], 'determined') },
+  { id: 4, label: 'Bob, cream sweater', spec: S('bob', 1, 2, 'sweater', 0, 4, ['clips']) },
+  { id: 5, label: 'Bun, blue sweatshirt', spec: S('bun', 0, 3, 'sweatshirt', 6, 2, ['scarf']) },
+  { id: 6, label: 'Side swept, puffer vest', spec: S('swept', 3, 1, 'vest', 3, 1, ['headphones'], 'determined') },
+  { id: 7, label: 'Ginger bob, plum cardigan', spec: S('bob', 7, 0, 'cardigan', 7, 2, ['glasses']) },
+  { id: 8, label: 'Side swept, rose sweater', spec: S('swept', 6, 5, 'sweater', 5, 0, ['scarf']) },
+  { id: 9, label: 'Blond crop, teal track jacket', spec: S('crop', 4, 4, 'track', 3, 1, ['backpack'], 'determined') },
 ];
 
+/** Deterministic: the same avatar id always maps to the same character. */
 export function avatar(id: number): AvatarVariant {
   return AVATARS[((id % AVATARS.length) + AVATARS.length) % AVATARS.length];
 }

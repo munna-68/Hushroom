@@ -187,7 +187,7 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
   function setSeat(slot: SeatSlot, o: SeatOccupant | null) {
     const prev = occ[slot.index];
     if (!o || !prev || prev.avatar !== o.avatar || prev.userId !== o.userId) {
-      if (slot.character) { slot.anchor.remove(slot.character.root); slot.character = null; }
+      if (slot.character) { slot.anchor.remove(slot.character.root); slot.character.dispose(); slot.character = null; }
       if (o) {
         const c = new Character(avatar(o.avatar), { seed: slot.index * 31 + o.avatar });
         c.focusAct = slot.focusAct;
@@ -321,6 +321,7 @@ export function renderAvatarThumbs(size = 144): Promise<string[]> {
       renderer.render(scene, cam);
       out.push(renderer.domElement.toDataURL('image/png'));
       scene.remove(c.root);
+      c.dispose();
     }
     renderer.dispose();
     renderer.forceContextLoss();

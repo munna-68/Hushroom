@@ -1,174 +1,23 @@
-// Procedural chibi student. Geometry is merged per bone (legs, body, head,
-// upper arm, forearm) and cached per avatar variant; animation is a small
-// procedural pose system with analytic two-bone arm IK. No per-frame allocations.
+// Animated student: drives the skinned rig from characterBuild.ts with a small
+// procedural pose system and analytic two-bone arm IK. No per-frame allocations.
 import * as THREE from 'three';
-import type { AvatarVariant } from '../lib/avatars';
-import { GeoBuilder, capsule, cyl, materials, roundedBox, sphere, toonMesh, torus } from './toon';
+import type { AvatarVariant, Expression } from '../lib/avatars';
+import { L1, L2, STAND_ROOT_Y, buildCharacter, heldItems, type CharacterRig } from './characterBuild';
+import { materials } from './toon';
+
+export { disposeCharacterCache } from './characterBuild';
 
 export type Status = 'focusing' | 'break' | 'away';
 export type FocusAct = 'write' | 'read' | 'type';
 type Act = FocusAct | 'sip' | 'stretch' | 'drink' | 'phone' | 'lean' | 'chairRead' | 'idle';
 
-const PANTS = ['#36405e', '#4a3b35', '#2e3a52', '#3d3a4a', '#33425e', '#4b3a2e', '#2f3d4f', '#40374f', '#36465c', '#4a4036'];
-const DARK = '#22151a';
-const L1 = 0.25, L2 = 0.25;
-export const SHOULDER_Y = 0.44;
-export const BODY_Y = 0.2;
 /** Root height when seated on a chair so the feet touch the floor. */
 export const CHAIR_ROOT_Y = 0.17;
-export const HEAD_Y = 0.74;
+export { STAND_ROOT_Y };
+/** Continuous focus after which the face turns exhausted. */
+const EXHAUSTED_AFTER = 20 * 60;
 
-interface VariantGeo { legsChair: THREE.BufferGeometry; body: THREE.BufferGeometry; head: THREE.BufferGeometry; eyes: THREE.BufferGeometry; closed: THREE.BufferGeometry; upper: THREE.BufferGeometry; fore: THREE.BufferGeometry }
-const cache = new Map<number, VariantGeo>();
-let itemGeo: { pen: THREE.BufferGeometry; phone: THREE.BufferGeometry } | null = null;
-
-function shade(hex: string, k: number): string {
-  return '#' + new THREE.Color(hex).multiplyScalar(k).getHexString();
-}
-
-function hairGeo(b: GeoBuilder, v: AvatarVariant) {
-  const h = v.hairColor;
-  const crown = v.hair === 'beanie' ? 0.36 : 0.44;
-  b.add(new THREE.SphereGeometry(0.3, 22, 12, 0, Math.PI * 2, 0, Math.PI * crown), h, { p: [0, 0.02, -0.005], s: [1.08, 1.04, 1.04] });
-  b.add(new THREE.SphereGeometry(0.3, 22, 14, Math.PI * 0.72, Math.PI * 1.56, 0, Math.PI * 0.82), h, { p: [0, 0.01, -0.01], s: [1.07, 1.02, 1.03] });
-  const bangs: [number, number, number, number][] = [[-0.21, 0.12, 0.2, 0.3], [-0.12, 0.15, 0.245, 0.15], [-0.03, 0.16, 0.265, 0.04], [0.06, 0.16, 0.262, -0.06], [0.15, 0.14, 0.24, -0.18], [0.22, 0.11, 0.2, -0.3]];
-  if (v.hair !== 'beanie') bangs.forEach(([x, y, z, rz]) => b.add(sphere(1, 10, 8), h, { p: [x, y, z], r: [0.2, 0, rz], s: [0.085, 0.13, 0.07] }));
-  [-1, 1].forEach((sd) => b.add(capsule(0.058, 0.13), h, { p: [sd * 0.27, -0.02, 0.13], r: [0.15, 0, sd * -0.1] }));
-  switch (v.hair) {
-    case 'bun':
-      b.add(sphere(0.14, 14, 10), h, { p: [0, 0.33, -0.1] });
-      b.add(torus(0.09, 0.026), v.accColor, { p: [0, 0.25, -0.08], r: [Math.PI / 2 - 0.3, 0, 0] });
-      break;
-    case 'long':
-    case 'bob': {
-      const len = v.hair === 'long' ? 0.34 : 0.17;
-      b.add(roundedBox(0.6, len, 0.26, 0.09), h, { p: [0, -0.06 - len / 2 + 0.06, -0.15] });
-      [-1, 1].forEach((sd) => b.add(capsule(0.065, len * 0.7), h, { p: [sd * 0.27, -0.1 - len * 0.2, 0.04], r: [0, 0, sd * -0.08] }));
-      break;
-    }
-    case 'short':
-      [[0, 0.27, 0.03, 0.11], [-0.14, 0.25, 0.01, 0.1], [0.14, 0.25, 0.01, 0.1], [0, 0.24, -0.16, 0.11], [-0.2, 0.18, -0.1, 0.09], [0.2, 0.18, -0.1, 0.09]]
-        .forEach(([x, y, z, r]) => b.add(sphere(r, 10, 8), h, { p: [x, y, z], s: [1.15, 0.85, 1.1] }));
-      break;
-    case 'curly':
-      [[0, 0.3, 0.05], [-0.16, 0.28, 0.06], [0.16, 0.28, 0.06], [-0.27, 0.18, 0.02], [0.27, 0.18, 0.02], [-0.3, 0.05, -0.06], [0.3, 0.05, -0.06], [-0.2, 0.26, -0.13], [0.2, 0.26, -0.13], [0, 0.29, -0.15], [-0.14, 0.14, -0.26], [0.14, 0.14, -0.26], [0, 0.08, -0.28], [-0.08, 0.22, 0.2], [0.08, 0.22, 0.2]]
-        .forEach(([x, y, z]) => b.add(sphere(0.125, 10, 8), h, { p: [x, y, z] }));
-      break;
-    case 'spiky':
-      [[0, 0.3, 0.06, 0.3], [-0.14, 0.27, 0.04, 0.6], [0.14, 0.27, 0.04, -0.6], [0, 0.27, -0.14, -0.4], [-0.16, 0.2, -0.14, 0.9], [0.16, 0.2, -0.14, -0.9]]
-        .forEach(([x, y, z, rz]) => b.add(new THREE.ConeGeometry(0.09, 0.2, 8), h, { p: [x, y, z], r: [z < 0 ? -0.5 : 0.3, 0, rz] }));
-      break;
-    case 'beanie':
-      b.add(new THREE.SphereGeometry(0.33, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.46), v.accColor, { p: [0, 0.04, -0.01], s: [1.04, 1.02, 1.02] });
-      b.add(torus(0.315, 0.05, Math.PI * 2, 8, 24), shade(v.accColor, 0.8), { p: [0, 0.07, -0.01], r: [Math.PI / 2, 0, 0], s: [1.06, 1.03, 1] });
-      b.add(sphere(0.09, 10, 8), '#f4efe4', { p: [0, 0.39, -0.02] });
-      break;
-  }
-  if (v.accessory === 'clip') b.add(roundedBox(0.1, 0.035, 0.03, 0.012), v.accColor, { p: [0.17, 0.2, 0.22], r: [0.2, 0.3, -0.5] }, 0);
-  if (v.accessory === 'headphones') {
-    b.add(torus(0.335, 0.024, Math.PI, 6, 18), v.accColor, { p: [0, 0.02, -0.02] });
-    [-1, 1].forEach((sd) => b.add(cyl(0.085, 0.085, 0.07, 14), shade(v.accColor, 0.75), { p: [sd * 0.32, 0, -0.02], r: [0, 0, Math.PI / 2] }));
-  }
-  if (v.accessory === 'glasses') {
-    [-1, 1].forEach((sd) => b.add(torus(0.058, 0.009, Math.PI * 2, 6, 18), v.accColor, { p: [sd * 0.105, -0.02, 0.29] }, 0));
-    b.add(cyl(0.008, 0.008, 0.05, 6), v.accColor, { p: [0, -0.01, 0.295], r: [0, 0, Math.PI / 2] }, 0);
-  }
-}
-
-function buildVariant(v: AvatarVariant): VariantGeo {
-  const hit = cache.get(v.id);
-  if (hit) return hit;
-  const pants = PANTS[v.id % PANTS.length];
-  const shoe = '#efe6d6';
-
-  const legs = () => {
-    const b = new GeoBuilder();
-    [-1, 1].forEach((sd) => {
-      // Thigh along the seat, shin hanging to the floor (root sits at CHAIR_ROOT_Y).
-      b.add(capsule(0.085, 0.26), pants, { p: [sd * 0.1, 0.17, 0.17], r: [Math.PI / 2, 0, 0] });
-      b.add(capsule(0.075, 0.14), pants, { p: [sd * 0.11, 0.03, 0.34] });
-      b.add(roundedBox(0.12, 0.08, 0.17, 0.035), shoe, { p: [sd * 0.11, -0.13, 0.38] });
-    });
-    return b.build();
-  };
-
-  // Body: torso lathe + top-specific details.
-  const b = new GeoBuilder();
-  const prof = [[0.01, 0], [0.22, 0.02], [0.235, 0.15], [0.21, 0.32], [0.165, 0.45], [0.09, 0.5], [0.01, 0.5]].map(([x, y]) => new THREE.Vector2(x, y));
-  b.add(new THREE.LatheGeometry(prof, 20), v.topColor, { s: [1.05, 1, 0.86] });
-  if (v.top === 'hoodie') {
-    b.add(sphere(0.2, 14, 10), shade(v.topColor, 0.88), { p: [0, 0.42, -0.14], s: [1.1, 0.75, 0.7] });
-    b.add(torus(0.13, 0.04, Math.PI * 2, 8, 18), shade(v.topColor, 0.92), { p: [0, 0.47, -0.01], r: [Math.PI / 2 + 0.15, 0, 0] });
-    [-0.045, 0.045].forEach((x) => b.add(cyl(0.009, 0.009, 0.15, 5), v.trimColor, { p: [x, 0.36, 0.17], r: [0.15, 0, 0] }, 0));
-    b.add(roundedBox(0.26, 0.11, 0.04, 0.03), shade(v.topColor, 0.9), { p: [0, 0.12, 0.19], r: [-0.08, 0, 0] }, 0);
-  } else {
-    b.add(torus(0.12, 0.035, Math.PI * 2, 8, 18), v.trimColor, { p: [0, 0.48, -0.01], r: [Math.PI / 2 + 0.1, 0, 0] });
-    b.add(cyl(0.232, 0.232, 0.05, 20), v.trimColor, { p: [0, 0.2, 0], s: [1.05, 1, 0.86] }, 0);
-    b.add(cyl(0.226, 0.236, 0.06, 20), shade(v.topColor, 0.86), { p: [0, 0.035, 0], s: [1.05, 1, 0.86] }, 0);
-  }
-  if (v.accessory === 'scarf') {
-    b.add(torus(0.14, 0.055, Math.PI * 2, 8, 18), v.accColor, { p: [0, 0.48, 0], r: [Math.PI / 2 + 0.1, 0, 0] });
-    b.add(roundedBox(0.09, 0.2, 0.04, 0.02), v.accColor, { p: [0.08, 0.36, 0.17], r: [0.15, 0, 0.1] });
-  }
-  const body = b.build();
-
-  // Head.
-  const hb = new GeoBuilder();
-  hb.add(sphere(0.29, 22, 16), v.skin, { s: [1.06, 0.98, 0.98] });
-  [-1, 1].forEach((sd) => hb.add(sphere(0.055, 8, 6), v.skin, { p: [sd * 0.3, -0.02, 0] }));
-  [-1, 1].forEach((sd) => {
-    hb.add(roundedBox(0.056, 0.014, 0.012, 0.005, 1), shade(v.hairColor, 0.8), { p: [sd * 0.105, 0.055, 0.278], r: [0, 0, sd * -0.1] }, 0);
-    hb.add(sphere(0.04, 10, 6), '#f28c9a', { p: [sd * 0.165, -0.07, 0.252], r: [0, sd * 0.35, 0], s: [1.25, 0.65, 0.25] }, 0);
-  });
-  hb.add(sphere(0.015, 6, 6), shade(v.skin, 0.88), { p: [0, -0.04, 0.29] }, 0);
-  hb.add(torus(0.022, 0.006, Math.PI, 5, 10), '#8c3b2b', { p: [0, -0.082, 0.28], r: [0, 0, Math.PI] }, 0);
-  hairGeo(hb, v);
-  const head = hb.build();
-
-  const eb = new GeoBuilder();
-  [-1, 1].forEach((sd) => {
-    const x = sd * 0.105;
-    eb.add(sphere(0.034, 10, 8), DARK, { p: [x, 0, 0.276], s: [0.85, 1.2, 0.5] }, 0);
-    eb.add(sphere(0.011, 6, 5), '#ffffff', { p: [x - sd * 0.008, 0.015, 0.292] }, 0);
-    eb.add(sphere(0.005, 5, 4), '#ffffff', { p: [x + sd * 0.009, -0.012, 0.29] }, 0);
-  });
-  const eyes = eb.build();
-  const cb = new GeoBuilder();
-  [-1, 1].forEach((sd) => cb.add(torus(0.03, 0.007, Math.PI, 5, 10), DARK, { p: [sd * 0.105, -0.025, 0.28] }, 0));
-  const closed = cb.build();
-
-  const ub = new GeoBuilder();
-  ub.add(capsule(0.05, L1 - 0.05), v.topColor, { p: [0, -L1 / 2 + 0.01, 0] });
-  const upper = ub.build();
-  const fb = new GeoBuilder();
-  fb.add(capsule(0.046, L2 - 0.07), v.topColor, { p: [0, -L2 / 2 + 0.02, 0] });
-  fb.add(cyl(0.05, 0.05, 0.04, 10), v.top === 'hoodie' ? shade(v.topColor, 0.86) : v.trimColor, { p: [0, -L2 + 0.05, 0] }, 0);
-  fb.add(sphere(0.052, 10, 8), v.skin, { p: [0, -L2, 0] });
-  const fore = fb.build();
-
-  const out = { legsChair: legs(), body, head, eyes, closed, upper, fore };
-  cache.set(v.id, out);
-  return out;
-}
-
-function items() {
-  if (itemGeo) return itemGeo;
-  const pen = new GeoBuilder().add(cyl(0.011, 0.011, 0.16, 6), '#f2b45a', { p: [0, 0, 0.04], r: [Math.PI / 2 - 0.5, 0, 0] }, 0).build();
-  const phone = new GeoBuilder()
-    .add(roundedBox(0.09, 0.16, 0.016, 0.012, 2), '#2a2f45', {})
-    .add(roundedBox(0.078, 0.14, 0.004, 0.008, 1), '#7fd1e0', { p: [0, 0, 0.009] }, 0)
-    .build();
-  itemGeo = { pen, phone };
-  return itemGeo;
-}
-
-export function disposeCharacterCache() {
-  cache.forEach((g) => Object.values(g).forEach((x) => x.dispose()));
-  cache.clear();
-  if (itemGeo) { itemGeo.pen.dispose(); itemGeo.phone.dispose(); itemGeo = null; }
-}
-
-interface Arm { shoulder: THREE.Group; elbow: THREE.Group; hand: THREE.Group; side: number }
+interface Arm { shoulder: THREE.Bone; elbow: THREE.Bone; hand: THREE.Bone; side: number }
 
 // Scratch objects shared by all characters (single-threaded render loop).
 const _inv = new THREE.Matrix4();
@@ -192,11 +41,10 @@ export interface CharacterHooks {
 }
 
 export class Character {
-  readonly root = new THREE.Group();
-  readonly body = new THREE.Group();
-  readonly head = new THREE.Group();
-  private eyes: THREE.Mesh;
-  private closed: THREE.Mesh;
+  readonly root: THREE.Group;
+  readonly body: THREE.Bone;
+  readonly head: THREE.Bone;
+  readonly rig: CharacterRig;
   private armL: Arm;
   private armR: Arm;
   private pen: THREE.Mesh;
@@ -216,6 +64,9 @@ export class Character {
   private pageT = -1;
   private nextBlink = 0;
   private nextTilt = 0;
+  private lastStatus: Status | null = null;
+  private focusSince = 0;
+  private nextSmile = 0;
   private seed: number;
   private rand: () => number;
   // pose state (current, damped) and targets
@@ -227,35 +78,26 @@ export class Character {
   private sway = 0; private swayT = 0;
   private hp = 0; private hpT = 0; private hy = 0; private hyT = 0; private hr = 0; private hrT = 0;
   private tiltY = 0; private tiltR = 0;
-  private closedEyes = false;
 
-  constructor(v: AvatarVariant, opts: { chair?: boolean; seed?: number } = {}) {
+  constructor(v: AvatarVariant, opts: { chair?: boolean; seed?: number; standing?: boolean } = {}) {
     this.variant = v;
     this.chair = !!opts.chair;
     this.seed = opts.seed ?? v.id * 7 + 3;
     let s = (this.seed * 2654435761) >>> 0 || 1;
     this.rand = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 10000) / 10000; };
-    const g = buildVariant(v);
+    this.rig = buildCharacter(v.spec, { standing: opts.standing });
+    this.root = this.rig.root;
+    this.body = this.rig.bones.torso;
+    this.head = this.rig.bones.head;
     const m = materials();
-    this.root.add(toonMesh(g.legsChair, { cast: true }));
-    this.body.position.set(0, BODY_Y, 0);
-    this.root.add(this.body);
-    this.body.add(toonMesh(g.body, { cast: true }));
-    this.head.position.set(0, HEAD_Y, 0.02);
-    this.body.add(this.head);
-    this.head.add(toonMesh(g.head, { cast: true }));
-    this.eyes = new THREE.Mesh(g.eyes, m.unlit);
-    this.closed = new THREE.Mesh(g.closed, m.unlit);
-    this.closed.visible = false;
-    this.eyes.position.y = -0.018;
-    this.head.add(this.eyes, this.closed);
-    const it = items();
+    const it = heldItems();
     this.pen = new THREE.Mesh(it.pen, m.toon);
     this.phone = new THREE.Mesh(it.phone, m.toon);
     this.phone.rotation.set(-1.2, 0, 0);
     this.phone.position.set(0.04, -0.05, 0.03);
-    this.armL = this.arm(-1, g);
-    this.armR = this.arm(1, g);
+    const b = this.rig.bones;
+    this.armL = { shoulder: b.shoulderL, elbow: b.elbowL, hand: b.handL, side: -1 };
+    this.armR = { shoulder: b.shoulderR, elbow: b.elbowR, hand: b.handR, side: 1 };
     this.armR.hand.add(this.pen, this.phone);
     this.pen.visible = this.phone.visible = false;
     const now = performance.now() / 1000;
@@ -264,19 +106,9 @@ export class Character {
     this.nextBlink = now + this.rand() * 3;
   }
 
-  private arm(side: number, g: VariantGeo): Arm {
-    const shoulder = new THREE.Group();
-    shoulder.position.set(side * 0.2, SHOULDER_Y, 0.02);
-    shoulder.add(toonMesh(g.upper, { cast: true }));
-    const elbow = new THREE.Group();
-    elbow.position.set(0, -L1, 0);
-    elbow.add(toonMesh(g.fore, { cast: true }));
-    const hand = new THREE.Group();
-    hand.position.set(0, -L2, 0);
-    elbow.add(hand);
-    shoulder.add(elbow);
-    this.body.add(shoulder);
-    return { shoulder, elbow, hand, side };
+  /** Release per-instance GPU state (bone texture). Geometry and materials are shared. */
+  dispose() {
+    this.rig.dispose();
   }
 
   /** Give the character a mug held in its right hand while sipping. */
@@ -295,6 +127,17 @@ export class Character {
     this.tL.set(-0.12, 0.45, 0.28); this.tR.set(0.12, 0.45, 0.28);
     this.cL.copy(this.tL); this.cR.copy(this.tR);
     this.hp = 0.05; this.hr = 0.08;
+    this.rig.setExpression('smile');
+    this.applyPose();
+  }
+
+  /** Static standing pose (arms at the sides) for the dev gallery. */
+  poseStanding(expr: Expression = this.variant.spec.expression) {
+    this.act = 'idle';
+    this.root.position.y = STAND_ROOT_Y;
+    this.cL.set(-0.29, 0.2, 0.06); this.cR.set(0.29, 0.2, 0.06);
+    this.lean = this.sway = this.hp = this.hy = this.hr = 0;
+    this.rig.setExpression(expr);
     this.applyPose();
   }
 
@@ -325,6 +168,10 @@ export class Character {
     const local = now - this.actStart;
     const TY = 0.565;
     let closed = false;
+    if (this.status !== this.lastStatus) {
+      if (this.status === 'focusing') this.focusSince = now;
+      this.lastStatus = this.status;
+    }
     this.pen.visible = false;
     this.phone.visible = false;
     let mugInHand = false;
@@ -408,10 +255,9 @@ export class Character {
       this.nextTilt = now + 3 + this.rand() * 6;
     }
     this.hrT = this.tiltR;
-    let blink = 1;
+    let blink = false;
     if (now > this.nextBlink) {
-      const b = now - this.nextBlink;
-      if (b < 0.14) blink = 0.12; else this.nextBlink = now + 2 + this.rand() * 4.5;
+      if (now - this.nextBlink < 0.14) blink = true; else this.nextBlink = now + 2 + this.rand() * 4.5;
     }
     if (this.handMug) this.handMug.visible = mugInHand;
     if (this.hooks.tableMug) this.hooks.tableMug.visible = !mugInHand;
@@ -425,11 +271,20 @@ export class Character {
     this.hp += (this.hpT - this.hp) * kb;
     this.hy += (this.hyT + this.tiltY - this.hy) * kb;
     this.hr += (this.hrT - this.hr) * kb;
-    if (closed !== this.closedEyes) { this.closedEyes = closed; this.closed.visible = closed; }
-    this.eyes.visible = !closed;
-    this.eyes.scale.y = blink;
+    this.rig.setExpression(closed || blink ? 'blink' : this.mood(now));
     this.body.scale.y = 1 + 0.012 * Math.sin(t * 1.7);
     this.applyPose();
+  }
+
+  /** Face for the current status: focus → focused/determined (exhausted after a long stretch), break → smile/sleepy. */
+  private mood(now: number): Expression {
+    if (this.chair) {
+      if (now > this.nextSmile + 3) this.nextSmile = now + 10 + this.rand() * 20;
+      return now > this.nextSmile ? 'smile' : 'focused';
+    }
+    if (this.status === 'break') return this.act === 'lean' || this.act === 'drink' ? 'sleepy' : 'smile';
+    if (now - this.focusSince > EXHAUSTED_AFTER) return 'exhausted';
+    return this.variant.spec.expression === 'determined' ? 'determined' : 'focused';
   }
 
   private applyPose() {
