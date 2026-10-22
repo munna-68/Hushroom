@@ -72,8 +72,8 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
   fill.position.set(5, 6, 6);
   scene.add(moon, moon.target, fill);
 
-  if (import.meta.env.DEV) (window as unknown as { __st: unknown }).__st = { renderer, get tier() { return tier; } };
   const room = buildRoom();
+  if (import.meta.env.DEV) (window as unknown as { __st: unknown }).__st = { renderer, seats: room.seats, get tier() { return tier; } };
   scene.add(room.group);
 
   // Ambient particles.
@@ -191,8 +191,7 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
       if (o) {
         const c = new Character(avatar(o.avatar), { seed: slot.index * 31 + o.avatar });
         c.focusAct = slot.focusAct;
-        c.hooks = { tableMug: slot.tableMug, page: slot.page ?? undefined };
-        c.setHandMug(slot.handMug);
+        c.attach({ tableMug: slot.tableMug, page: slot.page ?? undefined });
         c.root.position.y = CHAIR_ROOT_Y;
         slot.anchor.add(c.root);
         slot.character = c;
@@ -205,7 +204,7 @@ export function createStudyScene(container: HTMLElement): StudySceneHandle {
     if (slot.character && o) {
       slot.character.status = o.status;
       slot.character.root.visible = o.status !== 'away';
-      if (o.status === 'away') slot.tableMug.visible = true;
+      if (o.status === 'away') slot.character.park();
     }
     for (let k = 0; k < 3; k++) {
       const i = (slot.index * 3 + k) * 3;

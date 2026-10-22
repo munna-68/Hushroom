@@ -2,7 +2,7 @@
 // per-seat prop sets, the armchair reader and the sleeping cat.
 import * as THREE from 'three';
 import { avatar } from '../lib/avatars';
-import { Character, CHAIR_ROOT_Y, type FocusAct } from './character';
+import { Character, CHAIR_ROOT_Y, type FocusAct, type PageHook } from './character';
 import {
   GeoBuilder, blobShadow, capsule, cyl, glowSprite, lightPool, materials, rng, roundedBox, sphere, toonMesh, torus,
 } from './toon';
@@ -23,8 +23,7 @@ export interface SeatSlot {
   anchor: THREE.Group; // positioned/rotated at the seat, character faces +Z
   props: THREE.Group;
   tableMug: THREE.Mesh;
-  handMug: THREE.Mesh;
-  page: THREE.Object3D | null;
+  page: PageHook | null;
   focusAct: FocusAct;
   emptyGlow: THREE.Mesh;
   meRing: THREE.Mesh;
@@ -55,12 +54,11 @@ function book(b: GeoBuilder, w: number, h: number, d: number, color: string, xf:
   b.add(roundedBox(w, h, d, 0.012, 1), color, xf);
 }
 
-function seatProps(i: number, act: FocusAct, r: () => number): { geo: THREE.BufferGeometry; glow: THREE.BufferGeometry | null; page: THREE.Mesh | null; pagePivot: THREE.Group | null } {
+function seatProps(i: number, act: FocusAct, r: () => number): { geo: THREE.BufferGeometry; glow: THREE.BufferGeometry | null; page: PageHook | null } {
   const b = new GeoBuilder();
   const u = new GeoBuilder();
   const y = TABLE_TOP;
-  let pagePivot: THREE.Group | null = null;
-  let page: THREE.Mesh | null = null;
+  let page: PageHook | null = null;
   const cover = BOOKS[(i * 5 + 2) % BOOKS.length];
   if (act === 'write') {
     b.add(roundedBox(0.44, 0.02, 0.31, 0.01, 1), cover, { p: [0, y + 0.01, 0.52], r: [0, (r() - 0.5) * 0.2, 0] });
@@ -70,20 +68,25 @@ function seatProps(i: number, act: FocusAct, r: () => number): { geo: THREE.Buff
   } else if (act === 'read') {
     b.add(roundedBox(0.46, 0.02, 0.3, 0.01, 1), cover, { p: [0, y + 0.01, 0.5] });
     [-1, 1].forEach((sd) => b.add(roundedBox(0.2, 0.03, 0.27, 0.01, 1), '#f3ead7', { p: [sd * 0.105, y + 0.03, 0.5], r: [0, 0, sd * -0.08] }));
-    b.add(new THREE.BoxGeometry(0.12, 0.002, 0.008), '#b0a48c', { p: [-0.11, y + 0.05, 0.44] }, 0);
-    pagePivot = new THREE.Group();
-    pagePivot.position.set(0, y + 0.045, 0.5);
-    const pg = new GeoBuilder().add(new THREE.BoxGeometry(0.19, 0.006, 0.26), '#fbf4e4', { p: [0.095, 0, 0] }).build();
-    page = new THREE.Mesh(pg, materials().toon);
-    pagePivot.add(page);
+    for (let l = 0; l < 5; l++) b.add(new THREE.BoxGeometry(0.13 - (l % 2) * 0.03, 0.002, 0.007), '#c4b89e', { p: [0.11, y + 0.047, 0.42 + l * 0.035], r: [0, 0, -0.08] }, 0);
+    // The reader's right-hand page (−x, they face +z) lifts and turns over the spine to the left.
+    const pivot = new THREE.Group();
+    pivot.position.set(0, y + 0.055, 0.5);
+    pivot.rotation.z = 0.08;
+    const pg = new GeoBuilder().add(new THREE.BoxGeometry(0.19, 0.004, 0.26), '#fbf4e4', { p: [-0.095, 0, 0] }).build();
+    pivot.add(new THREE.Mesh(pg, materials().toon));
+    page = { pivot, axis: 'z', from: 0.08, to: -Math.PI - 0.08, grab: new THREE.Vector3(-0.175, 0, -0.1), lift: new THREE.Vector3(0, 0.035, 0), side: -1 };
   } else {
     const lap = i % 2 ? '#c9ccd6' : '#3a3f55';
     b.add(roundedBox(0.4, 0.025, 0.27, 0.015, 1), lap, { p: [0, y + 0.013, 0.5] });
     b.add(roundedBox(0.34, 0.004, 0.13, 0.002, 1), i % 2 ? '#9a9eaa' : '#262a3a', { p: [0, y + 0.027, 0.47] }, 0);
-    b.add(roundedBox(0.4, 0.27, 0.02, 0.015, 1), lap, { p: [0, y + 0.14, 0.66], r: [-0.25, 0, 0] });
-    b.add(sphere(0.02, 6, 5), CUSHIONS[(i + 3) % 10], { p: [0, y + 0.15, 0.674], s: [1, 1, 0.3] }, 0);
-    u.add(new THREE.PlaneGeometry(0.36, 0.23), '#a9d8ee', { p: [0, y + 0.145, 0.646], r: [-0.25, Math.PI, 0] }, 0);
-    for (let l = 0; l < 5; l++) u.add(new THREE.PlaneGeometry(0.08 + r() * 0.16, 0.012), l % 2 ? '#6aa7c9' : '#f2b45a', { p: [0.06 - r() * 0.08, y + 0.21 - l * 0.03, 0.638 - l * 0.007], r: [-0.25, Math.PI, 0] }, 0);
+    // Lid hinged at the back edge of the base, leaning away from the student.
+    const LID = 0.3, ca = Math.cos(LID), sa = Math.sin(LID);
+    const lid = (dx: number, ly: number, lz: number): [number, number, number] => [dx, y + 0.025 + ly * ca - lz * sa, 0.635 + ly * sa + lz * ca];
+    b.add(roundedBox(0.4, 0.27, 0.02, 0.015, 1), lap, { p: lid(0, 0.135, 0), r: [LID, 0, 0] });
+    b.add(sphere(0.02, 6, 5), CUSHIONS[(i + 3) % 10], { p: lid(0, 0.14, 0.011), r: [LID, 0, 0], s: [1, 1, 0.3] }, 0);
+    u.add(new THREE.PlaneGeometry(0.36, 0.23), '#a9d8ee', { p: lid(0, 0.14, -0.0105), r: [LID, Math.PI, 0] }, 0);
+    for (let l = 0; l < 5; l++) u.add(new THREE.PlaneGeometry(0.08 + r() * 0.16, 0.012), l % 2 ? '#6aa7c9' : '#f2b45a', { p: lid(0.06 - r() * 0.08, 0.205 - l * 0.03, -0.012), r: [LID, Math.PI, 0] }, 0);
   }
   // Belongings that make each seat different.
   const extras = [(i * 3) % 7, (i * 3 + 2) % 7, (i + 5) % 7];
@@ -121,7 +124,7 @@ function seatProps(i: number, act: FocusAct, r: () => number): { geo: THREE.Buff
         b.add(cyl(0.01, 0.01, 0.14, 6), '#33507a', { p: [x + 0.08, y + 0.01, z + 0.04], r: [Math.PI / 2, 0.8, 0] }, 0);
     }
   });
-  return { geo: b.build(), glow: u.empty ? null : u.build(), page, pagePivot };
+  return { geo: b.build(), glow: u.empty ? null : u.build(), page };
 }
 
 function staticRoom(): { geo: THREE.BufferGeometry; glowGeo: THREE.BufferGeometry } {
@@ -338,13 +341,13 @@ export function buildRoom(): RoomBuild {
     const props = new THREE.Group();
     props.add(toonMesh(p.geo));
     if (p.glow) props.add(new THREE.Mesh(p.glow, m.unlit));
-    if (p.pagePivot) props.add(p.pagePivot);
+    if (p.page) props.add(p.page.pivot);
     const mg = mugGeo(MUGS[i]);
     const tableMug = toonMesh(mg);
     const mx = i % 2 ? -0.3 : 0.32;
     tableMug.position.set(mx, TABLE_TOP, 0.42);
+    tableMug.rotation.y = mx < 0 ? Math.PI : 0; // handle faces the hand that will lift it
     props.add(tableMug);
-    const handMug = toonMesh(mg);
     props.visible = false;
     anchor.add(props);
     const emptyGlow = lightPool('#ffcf86', 1.1, 1.1, 0.16);
@@ -358,7 +361,7 @@ export function buildRoom(): RoomBuild {
     anchor.updateMatrixWorld(true);
     const mugWorld = new THREE.Vector3(mx, TABLE_TOP + 0.13, 0.42).applyMatrix4(anchor.matrixWorld);
     const headWorld = new THREE.Vector3(0, 1.38 + CHAIR_ROOT_Y, 0.05).applyMatrix4(anchor.matrixWorld);
-    seats.push({ index: i, anchor, props, tableMug, handMug, page: p.pagePivot, focusAct: act, emptyGlow, meRing, character: null, mugWorld, headWorld });
+    seats.push({ index: i, anchor, props, tableMug, page: p.page, focusAct: act, emptyGlow, meRing, character: null, mugWorld, headWorld });
   }
 
   // Armchair reader — always present, part of the room's life.
@@ -366,23 +369,32 @@ export function buildRoom(): RoomBuild {
   // Seated on the cushion (top ≈0.56) a little forward so the shins hang over the front edge.
   reader.root.position.set(-4.2 + Math.sin(0.75) * 0.14, 0.38, 1.55 + Math.cos(0.75) * 0.14);
   reader.root.rotation.y = 0.75;
+  // Open hardcover held in both hands: spine along local y, pages facing local +z.
+  const OPEN = 0.18;
+  const rot = (x: number, z: number, a: number): [number, number, number] => [x * Math.cos(a) + z * Math.sin(a), 0, -x * Math.sin(a) + z * Math.cos(a)];
+  const rb = new GeoBuilder().add(roundedBox(0.03, 0.27, 0.016, 0.006, 1), '#2b4466', { p: [0, 0, -0.012] });
+  for (const sd of [-1, 1]) {
+    const a = -sd * OPEN; // each half folds its outer edge toward the reader
+    const at = (x: number, yy: number, z: number): [number, number, number] => { const q = rot(sd * x, z, a); return [q[0], yy, q[2]]; };
+    rb.add(roundedBox(0.185, 0.27, 0.012, 0.005, 1), '#33507a', { p: at(0.0925, 0, -0.006), r: [0, a, 0] });
+    rb.add(roundedBox(0.172, 0.252, 0.022, 0.004, 1), '#f6efe0', { p: at(0.09, 0, 0.011), r: [0, a, 0] });
+    for (let l = 0; l < 6; l++) rb.add(new THREE.BoxGeometry(0.12 - (l % 3) * 0.02, 0.006, 0.002), '#c4b89e', { p: at(0.09, 0.085 - l * 0.034, 0.0225), r: [0, a, 0] }, 0);
+  }
   const rbook = new THREE.Group();
-  const rb = new GeoBuilder()
-    .add(roundedBox(0.03, 0.26, 0.2, 0.01, 1), '#33507a', { p: [0, 0, 0] })
-    .add(roundedBox(0.17, 0.24, 0.02, 0.008, 1), '#f6efe0', { p: [-0.09, 0, 0.0], r: [0, 0.25, 0] })
-    .build();
-  rbook.add(toonMesh(rb));
+  rbook.add(toonMesh(rb.build()));
   const rpagePivot = new THREE.Group();
-  const rpage = new THREE.Mesh(new GeoBuilder().add(new THREE.BoxGeometry(0.17, 0.235, 0.006), '#fbf4e4', { p: [0.085, 0, 0] }).build(), m.toon);
-  rpagePivot.add(rpage);
-  rpagePivot.rotation.y = 0;
+  rpagePivot.position.set(0, 0, 0.0235);
+  rpagePivot.rotation.y = -OPEN;
+  rpagePivot.add(new THREE.Mesh(new GeoBuilder().add(new THREE.BoxGeometry(0.168, 0.248, 0.003), '#fbf4e4', { p: [0.084, 0, 0] }).build(), m.toon));
   rbook.add(rpagePivot);
-  const rcover = new THREE.Mesh(new GeoBuilder().add(roundedBox(0.18, 0.26, 0.015, 0.006, 1), '#33507a', { p: [0.09, 0, -0.012], r: [0, -0.25, 0] }).build(), m.toon);
-  rbook.add(rcover);
-  rbook.position.set(0, 0.47, 0.38);
-  rbook.rotation.set(-1.0, Math.PI, 0);
+  // Tilted up toward the reader's eyes, top edge away; local +x ends up on the reader's right.
+  rbook.position.set(0, 0.5, 0.36);
+  rbook.rotation.set(1.0, Math.PI, 0);
   reader.root.add(rbook);
-  reader.hooks.page = rpagePivot;
+  reader.attach({
+    page: { pivot: rpagePivot, axis: 'y', from: -OPEN, to: -(Math.PI - OPEN), grab: new THREE.Vector3(0.15, -0.08, 0), lift: new THREE.Vector3(0, 0, 0.03), side: -1 },
+    book: { obj: rbook, hold: [new THREE.Vector3(0.165, -0.07, 0.005), new THREE.Vector3(-0.165, -0.07, 0.005)] },
+  });
   group.add(reader.root);
 
   // Cat asleep on the bed.
