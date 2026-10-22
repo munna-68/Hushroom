@@ -105,13 +105,17 @@ export function mountGallery(el: HTMLElement) {
 
   let g = section('1. Base character turnaround', 5);
   ([['Front', 0, 0.08], ['3/4 front', -0.65, 0.08], ['Side', -Math.PI / 2, 0.08], ['Back', Math.PI, 0.08], ['High angle 3/4 (behind)', Math.PI - 0.7, 0.75]] as const)
-    .forEach(([label, yaw, elev]) => cell(g, { spec: BASE, yaw, elev, frame: 'body', label }, 220, 300));
+    .forEach(([label, yaw, elev]) => cell(g, { spec: BASE, yaw, elev, frame: 'body', expr: 'smile', label }, 220, 300));
 
-  g = section('2. Hair set (front, 3/4, back, above)', 8);
+  g = section('Base head close-up', 2);
+  ([['Front', 0, 0.05], ['3/4 front', -0.65, 0.08], ['Side', -Math.PI / 2, 0.05], ['Back 3/4', Math.PI - 0.6, 0.3]] as const)
+    .forEach(([label, yaw, elev]) => cell(g, { spec: BASE, yaw, elev, frame: 'head', expr: 'smile', label }, 420, 340));
+
+  g = section('2. Hair set (front, 3/4, back, above)', 4);
   HAIR_STYLES.forEach((hair) => {
     const spec = { ...BASE, hair, hairColor: HAIR_COLOR[hair], accessories: [] };
     ([['front', 0, 0.05], ['3/4', -0.7, 0.1], ['back', Math.PI, 0.1], ['above', Math.PI - 0.5, 1.05]] as const)
-      .forEach(([view, yaw, elev]) => cell(g, { spec, yaw, elev, frame: 'head', label: `${hair} · ${view}` }, 150, 150));
+      .forEach(([view, yaw, elev]) => cell(g, { spec, yaw, elev, frame: 'head', label: `${hair} · ${view}` }, 280, 230));
   });
 
   g = section('3. Outfit set (front, back)', 6);

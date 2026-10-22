@@ -131,7 +131,7 @@ export class Character {
   poseStanding(expr: Expression = this.variant.spec.expression) {
     this.act = 'idle';
     this.root.position.y = STAND_ROOT_Y;
-    this.cL.set(-0.29, 0.2, 0.06); this.cR.set(0.29, 0.2, 0.06);
+    this.cL.set(-0.27, 0.15, 0.05); this.cR.set(0.27, 0.15, 0.05);
     this.lean = this.sway = this.hp = this.hy = this.hr = 0;
     this.rig.setExpression(expr);
     this.applyPose();

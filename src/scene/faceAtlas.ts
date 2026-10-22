@@ -15,9 +15,9 @@ const PHI_0 = Math.PI / 2 - PHI_L / 2;
 const CELL = 256;
 
 // Feature layout in head-local units (scaled head, face toward +z).
-const EX = 0.094, EY = -0.05, ERX = 0.031, ERY = 0.042;
-const BY = 0.04, MY = -0.142;
-const INK = '#2f2520', IRIS = '#5e3d28', LINE = '#3a2a22', MOUTH = '#7a3b2c', BLUSH = '236,154,102';
+const EX = 0.104, EY = -0.058, ERX = 0.033, ERY = 0.043;
+const BY = 0.022, MY = -0.14;
+const INK = '#261a15', IRIS = '#5a3a28', LINE = '#3a2820', MOUTH = '#6e3226', BLUSH = '240,138,116';
 
 export function faceGeometry(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(HEAD_R * LIFT, 12, 10, PHI_0, PHI_L, THETA_0, THETA_L);
@@ -42,14 +42,15 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
 
   // Blush.
   for (const sd of [-1, 1]) {
-    at(sd * 0.165, -0.118);
-    ctx.scale(1, 0.55);
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 0.05);
-    const a = e === 'smile' ? 0.62 : e === 'exhausted' || e === 'sleepy' ? 0.35 : 0.48;
+    at(sd * 0.168, -0.122);
+    ctx.scale(1, 0.62);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 0.058);
+    const a = e === 'smile' ? 0.7 : e === 'exhausted' || e === 'sleepy' ? 0.38 : 0.55;
     g.addColorStop(0, `rgba(${BLUSH},${a})`);
+    g.addColorStop(0.45, `rgba(${BLUSH},${a * 0.7})`);
     g.addColorStop(1, `rgba(${BLUSH},0)`);
     ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, 0.05, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, 0.058, 0, Math.PI * 2); ctx.fill();
   }
 
   // Eyes. lid: y (relative to eye centre) of the upper lid cut; tilt > 0 drops the inner corner.
@@ -66,11 +67,15 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
     }
     ctx.fillStyle = INK;
     ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = IRIS;
-    ctx.beginPath(); ctx.ellipse(0, -ry * 0.42, rx * 0.66, ry * 0.42, 0, 0, Math.PI * 2); ctx.fill();
-    const hy = Math.min(ry * 0.4, lidAt(-rx * 0.3) - 0.014);
+    // Warm iris glow in the lower half, then a big catchlight and a small bounce light.
+    const ig = ctx.createRadialGradient(0, -ry * 0.5, 0, 0, -ry * 0.5, ry * 0.75);
+    ig.addColorStop(0, IRIS); ig.addColorStop(1, 'rgba(90,58,40,0)');
+    ctx.fillStyle = ig;
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+    const hy = Math.min(ry * 0.38, lidAt(-rx * 0.3) - 0.015);
     ctx.fillStyle = '#fffaf2';
-    ctx.beginPath(); ctx.arc(-rx * 0.32, hy, 0.0125 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-rx * 0.3, hy, 0.0135 * s, 0.015 * s, 0, 0, Math.PI * 2); ctx.fill();
+    if (o.lid === undefined) { ctx.beginPath(); ctx.arc(rx * 0.38, -ry * 0.42, 0.006 * s, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
     if (o.lid !== undefined) {
       ctx.beginPath();
@@ -87,12 +92,12 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
     stroke(0.011, INK);
   };
   // Brow: tilt > 0 lowers the inner end (cross), < 0 raises it (worried); arch bows it upward.
-  const brow = (sd: number, y: number, tilt = 0, arch = 0.006, w = 0.009) => {
+  const brow = (sd: number, y: number, tilt = 0, arch = 0.006, w = 0.012) => {
     at(sd * EX, y);
-    const inner = -sd * 0.03, outer = sd * 0.03;
+    const inner = -sd * 0.026, outer = sd * 0.027;
     ctx.beginPath();
     ctx.moveTo(inner, -tilt * 0.03);
-    ctx.quadraticCurveTo(0, arch, outer, tilt * 0.03);
+    ctx.quadraticCurveTo(0, arch, outer, tilt * 0.03 - 0.002);
     stroke(w);
   };
   const mouth = (draw: () => void, w = 0.008) => { at(0, MY); ctx.beginPath(); draw(); stroke(w, MOUTH); };
@@ -104,7 +109,7 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
       case 'sleepy': eye(sd, { lid: -0.006, tilt: -0.22 }); brow(sd, BY + 0.01, -0.12, 0.004); break;
       case 'blink': shut(sd); brow(sd, BY + 0.004, 0, 0.008); break;
       case 'surprised': eye(sd, { s: 1.1 }); brow(sd, BY + 0.03, 0, 0.016); break;
-      case 'annoyed': eye(sd, { lid: 0.006, tilt: 0.12 }); brow(sd, BY - 0.004, 0.42, 0.002, 0.01); break;
+      case 'annoyed': eye(sd, { lid: 0.006, tilt: 0.12 }); brow(sd, BY - 0.004, 0.42, 0.002, 0.013); break;
       case 'exhausted': eye(sd, { lid: -0.012, tilt: -0.3 }); brow(sd, BY + 0.012, -0.38, 0.004);
         at(sd * EX, EY - ERY - 0.012); ctx.beginPath(); ctx.moveTo(-0.022, 0); ctx.quadraticCurveTo(0, -0.008, 0.022, 0); stroke(0.005, 'rgba(120,70,60,0.55)');
         break;
@@ -112,8 +117,8 @@ function drawCell(ctx: CanvasRenderingContext2D, e: Expression, ox: number, oy: 
     }
   }
   switch (e) {
-    case 'focused': mouth(() => { ctx.moveTo(-0.013, 0.003); ctx.quadraticCurveTo(0, -0.008, 0.013, 0.003); }); break;
-    case 'smile': mouth(() => { ctx.moveTo(-0.02, 0.006); ctx.quadraticCurveTo(0, -0.016, 0.02, 0.006); }); break;
+    case 'focused': mouth(() => { ctx.moveTo(-0.014, 0.004); ctx.quadraticCurveTo(0, -0.009, 0.014, 0.004); }, 0.009); break;
+    case 'smile': mouth(() => { ctx.moveTo(-0.021, 0.008); ctx.quadraticCurveTo(0, -0.017, 0.021, 0.008); }, 0.009); break;
     case 'sleepy': mouth(() => { ctx.moveTo(-0.01, 0); ctx.quadraticCurveTo(0, -0.004, 0.01, 0); }); break;
     case 'blink': mouth(() => { ctx.moveTo(-0.014, 0.004); ctx.quadraticCurveTo(0, -0.01, 0.014, 0.004); }); break;
     case 'surprised':

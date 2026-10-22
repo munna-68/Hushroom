@@ -2,7 +2,7 @@
 // Palettes are sampled from the swatch rows of docs/character-sheet.png.
 
 export const SKIN = ['#f1c6a5', '#e2b18f', '#d59f7d', '#c68a65', '#b87c57', '#a56c52', '#6e4430', '#482e24'];
-export const HAIR = ['#3e3330', '#51362a', '#754934', '#946140', '#d9b38e', '#a68169', '#3b424f', '#c0624b'];
+export const HAIR = ['#4a3329', '#51362a', '#754934', '#946140', '#d9b38e', '#a68169', '#3b424f', '#c0624b'];
 export const OUTFIT = ['#ebd4b9', '#798475', '#456360', '#3f4e44', '#b76548', '#c87966', '#617b92', '#6a495d'];
 /** Trousers, sampled from the sheet's figures (denim, charcoal, beige, plum, navy). */
 export const PANTS = ['#55627a', '#49454b', '#d8c7a8', '#64434e', '#3f4a5c'];

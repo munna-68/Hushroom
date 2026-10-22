@@ -105,12 +105,179 @@ function hairline(az: number, yF: number, yS: number, yB: number, f0 = 0.55, f1 
 }
 const roll = (s: number) => 0.035 * (1 - ss(0, 0.16, s)); // rounded lip at the hair edge
 
+const dirOf = (az: number, el: number): V3 => [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)];
+
+interface LockOpts {
+  /** Radius at root and tip, in unit-head radii (× the shell radius when surf is given). */
+  lift?: [number, number];
+  /** Follow a hair shell's surface instead of the unit sphere. */
+  surf?: (d: V3) => number;
+  /** Sideways bow of the path, so locks can sweep in arcs. */
+  bend?: number;
+  /** Where the width profile starts (0 = rooted at the hairline: full width but flat there). */
+  root?: number;
+  /** Tip sharpness: lower is blunter. */
+  tipPow?: number;
+}
+
+/**
+ * One sculpted hair lock: a tapered, flattened strand that follows the head from a
+ * root direction to a tip, its underside buried in the hair cap below.
+ * Angles in radians; lift/thick in unit-head radii.
+ */
+function lockGeo(root: V3, tip: V3, halfW: number, thick: number, hex: string, o: LockOpts = {}): THREE.BufferGeometry {
+  const NP = 9, NR = 8;
+  const { lift = [0.99, 1.03], surf, bend = 0, root: r0 = 0.2, tipPow = 0.55 } = o;
+  const r = new THREE.Vector3(...root).normalize(), q = new THREE.Vector3(...tip).normalize();
+  const om = Math.acos(THREE.MathUtils.clamp(r.dot(q), -1, 1)) || 1e-4;
+  const side = r.clone().cross(q).normalize();
+  const at = (t: number) => r.clone().multiplyScalar(Math.sin((1 - t) * om)).addScaledVector(q, Math.sin(t * om)).divideScalar(Math.sin(om))
+    .addScaledVector(side, bend * Math.sin(Math.PI * t)).normalize();
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const base = new THREE.Color(hex), c = new THREE.Color();
+  const S = [HEAD_R * HEAD_S[0], HEAD_R * HEAD_S[1], HEAD_R * HEAD_S[2]];
+  for (let i = 0; i <= NP; i++) {
+    const t = i / NP;
+    const n = at(t), T = at(Math.min(1, t + 0.01)).sub(at(Math.max(0, t - 0.01))).normalize();
+    const B = n.clone().cross(T).normalize();
+    // Rooted at the hairline: full width from the start, but flat there so it melts into the edge.
+    const u = r0 > 0 ? r0 + (1 - r0) * t : 0.3 + 0.7 * t;
+    const prof = Math.pow(Math.sin(Math.PI * u), u < 0.5 ? 0.55 : tipPow);
+    const tp = r0 > 0 ? prof : prof * Math.sqrt(ss(0, 0.35, t));
+    const R = (surf ? Math.max(surf([n.x, n.y, n.z]), 1.02) : 1) * mix(lift[0], lift[1], t) + thick * 0.35 * tp;
+    for (let j = 0; j < NR; j++) {
+      const ph = (j / NR) * Math.PI * 2;
+      const p = n.clone().multiplyScalar(R)
+        .addScaledVector(B, Math.cos(ph) * halfW * R * prof)
+        .addScaledVector(n, Math.sin(ph) * thick * 0.6 * tp);
+      pos.push(p.x * S[0], p.y * S[1], p.z * S[2]);
+      // Darker along the lock's edges and root so neighbouring locks separate.
+      c.copy(base).multiplyScalar(0.72 + 0.3 * Math.max(0, Math.sin(ph)) ** 0.6 + 0.06 * ss(0, 0.5, t)).toArray(col, col.length);
+      if (i < NP) { const a = i * NR + j, b = i * NR + ((j + 1) % NR); idx.push(a, b, a + NR, b, b + NR, a + NR); }
+    }
+  }
+  return finishGeo(pos, col, idx);
+}
+
+function finishGeo(pos: number[], col: number[], idx: number[]): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('outline', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3).fill(1), 1));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Free-hanging round strand along a smooth head-local path (ponytail, bun coil).
+ * rad(t) gives its radius; it is darker on the side facing core(t), so strands
+ * bundled around a core read as separate.
+ */
+function strandGeo(pts: V3[], rad: (t: number) => number, hex: string, core: (t: number) => THREE.Vector3, NP = 16, NR = 8): THREE.BufferGeometry {
+  const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(...p)));
+  const { normals, binormals } = curve.computeFrenetFrames(NP, false);
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const base = new THREE.Color(hex), c = new THREE.Color(), d = new THREE.Vector3(), out = new THREE.Vector3();
+  for (let i = 0; i <= NP; i++) {
+    const t = i / NP, p = curve.getPointAt(t), rr = rad(t);
+    out.copy(p).sub(core(t)).normalize();
+    for (let j = 0; j < NR; j++) {
+      const ph = (j / NR) * Math.PI * 2;
+      d.copy(normals[i]).multiplyScalar(Math.cos(ph)).addScaledVector(binormals[i], Math.sin(ph));
+      pos.push(p.x + d.x * rr, p.y + d.y * rr, p.z + d.z * rr);
+      c.copy(base).multiplyScalar(0.74 + 0.3 * Math.max(0, d.dot(out)) ** 0.6).toArray(col, col.length);
+      if (i < NP) { const a = i * NR + j, b = i * NR + ((j + 1) % NR); idx.push(a, b, a + NR, b, b + NR, a + NR); }
+    }
+  }
+  return finishGeo(pos, col, idx);
+}
+
+/** A springy curl: a ball with a darker spiral groove wound round its outward face. */
+function curlGeo(rad: number, out: THREE.Vector3, hex: string): THREE.BufferGeometry {
+  const g = sphere(rad, 12, 8);
+  const a = out.clone().normalize(), u = new THREE.Vector3(0, 1, 0).cross(a).normalize(), w = a.clone().cross(u);
+  const p = g.attributes.position as THREE.BufferAttribute, v = new THREE.Vector3();
+  const base = new THREE.Color(hex), c = new THREE.Color(), col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i).normalize();
+    const h = v.dot(a), spiral = 0.5 + 0.5 * Math.sin(Math.atan2(v.dot(w), v.dot(u)) + 6 * Math.acos(h));
+    c.copy(base).multiplyScalar(0.6 + 0.26 * Math.max(0, h) + 0.3 * spiral * ss(-0.2, 0.5, h)).toArray(col, i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('outline', new THREE.BufferAttribute(new Float32Array(p.count).fill(1), 1));
+  return g;
+}
+
+/** [root az, root el, tip az, tip el, half-width, thickness, options] */
+type Lock = [number, number, number, number, number, number, LockOpts?];
+const PI = Math.PI;
+const mirror = (l: Lock[]): Lock[] => l.flatMap((k) => (k[0] === 0 || k[0] === PI) && k[2] === k[0] ? [k] : [k, [-k[0], k[1], -k[2], k[3], k[4], k[5], k[6] && { ...k[6], bend: -(k[6].bend ?? 0) }]]);
+
+// Side swept: a big fringe sweeping from the parting (char's left) over the forehead,
+// the top flowing forward from the crown, short locks behind the parting.
+const SWEPT_LOCKS: Lock[] = [
+  [0.62, 0.8, -0.2, 0.3, 0.24, 0.26, { bend: 0.1 }], [0.66, 1.0, -0.55, 0.22, 0.24, 0.25, { bend: 0.12 }],
+  [0.6, 1.2, -0.9, 0.12, 0.24, 0.24, { bend: 0.1 }], [0.4, 1.38, -1.3, 0.02, 0.24, 0.22, { bend: 0.06 }],
+  [2.7, 1.2, -1.55, 0.05, 0.25, 0.22, { bend: 0.1 }], [-2.75, 1.15, -1.95, -0.1, 0.23, 0.2],
+  [PI - 0.2, 1.42, 0.5, 1.05, 0.27, 0.24, { bend: 0.05 }], [-2.4, 1.32, -0.9, 0.72, 0.26, 0.22],
+  [0.95, 1.0, 1.15, 0.28, 0.2, 0.18], [1.35, 0.95, 1.55, 0.24, 0.2, 0.18], [1.85, 1.0, 1.95, 0.08, 0.2, 0.18],
+  [2.3, 1.15, 2.3, -0.26, 0.21, 0.2], [2.75, 1.2, 2.78, -0.3, 0.21, 0.2], [PI, 1.25, PI, -0.3, 0.21, 0.2],
+  [-2.3, 1.15, -2.32, -0.24, 0.21, 0.2], [-1.6, 0.9, -1.55, -0.14, 0.21, 0.2],
+];
+
+// Bob: a blunt fringe and long locks falling from the crown to a rounded hem.
+const BOB_LOCKS: Lock[] = [
+  ...[-0.62, -0.37, -0.12, 0.12, 0.37, 0.62].map((a): Lock => [a * 0.45, 1.36, a, 0.36, 0.2, 0.2, { tipPow: 0.3 }]),
+  ...mirror([1.0, 1.45, 1.9, 2.35, 2.78].map((a, i): Lock => [a, 1.5, a + 0.04, -0.72 - 0.12 * ss(1.6, 2.6, a), 0.25, 0.2 + 0.03 * (i % 2), { tipPow: 0.3 }])),
+  [PI, 1.5, PI, -0.86, 0.25, 0.22, { tipPow: 0.3 }],
+];
+
+// Low ponytail: hair pulled back from the hairline to the tie at the nape.
+const PONY_LOCKS: Lock[] = [
+  [0, 0.75, PI, -0.12, 0.22, 0.16, { root: 0 }],
+  ...mirror([[0.5, 0.5], [0.9, 0.38], [1.25, 0.24], [1.6, 0.12], [1.98, 0.06]].map(([a, e]): Lock => [a, e, PI - 0.12, -0.18, 0.22, 0.16, { root: 0 }])),
+  // up from the nape into the tie
+  ...mirror([[2.3, -0.3], [2.75, -0.46]].map(([a, e]): Lock => [a, e, PI - 0.1, -0.26, 0.22, 0.14, { root: 0 }])),
+];
+// …and a soft side-swept fringe lying over them.
+const PONY_FRINGE: Lock[] = [
+  [-0.35, 1.0, 0.42, 0.33, 0.24, 0.16, { bend: -0.08 }], [-0.3, 0.92, 0.88, 0.26, 0.2, 0.14, { bend: -0.1 }], [-0.42, 0.92, -0.78, 0.3, 0.2, 0.14],
+];
+
+// Bun: hair pulled up from the hairline into the bun at the crown.
+const BUN_LOCKS: Lock[] = [
+  [0, 0.5, PI, 0.96, 0.22, 0.16, { root: 0 }], [PI, -0.33, PI, 0.96, 0.22, 0.16, { root: 0 }],
+  ...mirror([[0.45, 0.42], [0.9, 0.3], [1.35, 0.18], [1.8, 0.12], [2.25, -0.05], [2.7, -0.24]].map(([a, e]): Lock => [a, e, PI, 0.96, 0.22, 0.16, { root: 0 }])),
+];
+
+// Tousled crop: locks fan out from a crown at the back of the head, down onto the
+// forehead, over the ears and down the nape. [root az, root el, tip az, tip el, half-width, thickness, tip lift]
+const CROP_LOCKS: [number, number, number, number, number, number, number?][] = [
+  // fringe
+  [-0.45, 1.05, -0.8, 0.22, 0.22, 0.2], [-0.2, 1.1, -0.38, 0.18, 0.23, 0.22], [0.05, 1.12, 0.06, 0.16, 0.23, 0.23], [0.3, 1.1, 0.47, 0.19, 0.23, 0.22], [0.55, 1.05, 0.84, 0.24, 0.22, 0.2],
+  // over the top, from the crown forward
+  [Math.PI - 0.5, 1.35, -0.62, 0.66, 0.27, 0.26], [Math.PI, 1.42, 0.0, 0.7, 0.27, 0.28], [Math.PI + 0.5, 1.35, 0.62, 0.66, 0.27, 0.26],
+  [-2.0, 1.15, -1.08, 0.52, 0.26, 0.24], [2.0, 1.15, 1.08, 0.52, 0.26, 0.24],
+  // sides, over the ears
+  [-1.35, 0.95, -1.28, 0.16, 0.21, 0.17], [1.35, 0.95, 1.28, 0.16, 0.21, 0.17], [-1.7, 0.95, -1.68, 0.02, 0.22, 0.19], [1.7, 0.95, 1.68, 0.02, 0.22, 0.19],
+  // back, from the crown down: a long outer layer whose tips flick out over the nape,
+  // and a shorter staggered layer on top so the hem is jagged rather than a bowl edge
+  [-2.05, 0.95, -2.0, -0.28, 0.2, 0.2, 1.05], [2.05, 0.95, 2.0, -0.28, 0.2, 0.2, 1.05],
+  [-2.5, 1.05, -2.48, -0.4, 0.2, 0.21, 1.06], [2.5, 1.05, 2.48, -0.4, 0.2, 0.21, 1.06],
+  [-2.95, 1.1, -2.98, -0.36, 0.2, 0.21, 1.06], [2.95, 1.1, 2.98, -0.36, 0.2, 0.21, 1.06],
+  [-2.28, 1.15, -2.25, -0.04, 0.21, 0.24, 1.05], [2.28, 1.15, 2.25, -0.04, 0.21, 0.24, 1.05],
+  [-2.74, 1.2, -2.72, -0.12, 0.21, 0.25, 1.05], [2.74, 1.2, 2.72, -0.12, 0.21, 0.25, 1.05], [Math.PI, 1.2, Math.PI, -0.18, 0.21, 0.25, 1.05],
+];
+
 /** Hair shells as [signed distance above hairline, thickness] on the unit head sphere. */
 type ShellFn = (x: number, y: number, z: number, az: number) => [number, number];
 const HAIR_FN: Record<HairStyle, ShellFn> = {
   crop: (_x, y, _z, az) => {
-    const s = y - hairline(az, 0.32 - 0.08 * Math.pow(Math.abs(Math.cos(az * 5.2)), 4), 0.2, -0.32);
-    return [s, 0.045 + 0.16 * Math.pow(Math.max(0, y), 1.5) + roll(s)];
+    const burn = 0.3 * Math.exp(-((Math.abs(az) - 1.3) ** 2) / 0.006);
+    const behindEar = 0.4 * ss(1.55, 1.9, Math.abs(az));
+    const s = y - hairline(az, 0.3, 0.08 - burn - behindEar, -0.3, 0.75, 1.35);
+    return [s, 0.03 + 0.05 * Math.pow(Math.max(0, y), 1.4) + roll(s)];
   },
   swept: (_x, y, _z, az) => {
     const s = y - hairline(az, 0.14 + 0.48 * ss(-0.7, 0.75, az), az < 0 ? -0.2 : 0.18, -0.36);
@@ -138,6 +305,10 @@ const beanieFn: ShellFn = (_x, y, _z, az) => {
   const s = y - hairline(az, 0.3, 0.12, -0.12);
   return [s, 0.2 + 0.05 * Math.max(0, y) + (s < 0.17 ? 0.035 : 0) + 0.006 * Math.cos(az * 28)];
 };
+/** Teardrop strand along +y, base at the origin. */
+const tuft = (len: number, rad: number) =>
+  new THREE.LatheGeometry([[0, 0], [rad, 0.2], [rad * 0.85, 0.45], [rad * 0.4, 0.8], [0, 1]].map(([r, y]) => new THREE.Vector2(r, y * len)), 8);
+const hairAtFn = (fn: ShellFn, d: V3) => { const n = Math.hypot(...d); return shellR(fn, d[0] / n, d[1] / n, d[2] / n); };
 const shellR = (fn: ShellFn, x: number, y: number, z: number) => {
   const [s, t] = fn(x, y, z, Math.atan2(x, z));
   return 0.965 + (t + 0.035) * ss(-SOFT, SOFT, s);
@@ -230,9 +401,11 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
     B[hip].add(cap(0.09, 0.15), pants, { p: [0, -0.12, 0] });
     B[knee].add(sphere(0.088, 8, 5), pants);
     B[knee].add(cyl(0.086, 0.094, 0.22, 10), pants, { p: [0, -0.11, 0] });
-    B[knee].add(cyl(0.097, 0.097, 0.03, 10), shade(pants, 0.88), { p: [0, -0.215, 0] });
-    B[knee].add(roundedBox(0.135, 0.085, 0.2, 0.04, 2), SHOE, { p: [0, -0.272, 0.035] });
-    B[knee].add(roundedBox(0.14, 0.03, 0.205, 0.012, 1), SOLE, { p: [0, -0.318, 0.035] });
+    // Rolled-up cuff, then a chunky rounded sneaker.
+    B[knee].add(cyl(0.104, 0.102, 0.05, 12), shade(pants, 0.9), { p: [0, -0.2, 0] });
+    B[knee].add(torus(0.1, 0.012, Math.PI * 2, 4, 12), shade(pants, 1.06), { p: [0, -0.176, 0], r: [Math.PI / 2, 0, 0] }, 0);
+    B[knee].add(roundedBox(0.145, 0.095, 0.215, 0.046, 2), SHOE, { p: [0, -0.27, 0.04] });
+    B[knee].add(roundedBox(0.152, 0.032, 0.222, 0.014, 1), SOLE, { p: [0, -0.318, 0.04] });
   }
 
   // Torso.
@@ -297,45 +470,99 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
   // Head.
   const H = B.head;
   H.add(sphere(HEAD_R, 22, 16), skin, { s: HEAD_S });
-  for (const sd of [-1, 1]) H.add(sphere(0.05 * K, 6, 5), skin, { p: [sd * HEAD_R * HEAD_S[0] * 0.985, -0.045 * K, 0], s: [0.55, 0.95, 0.85] });
+  for (const sd of [-1, 1]) {
+    H.add(sphere(0.056 * K, 8, 6), skin, { p: [sd * HEAD_R * HEAD_S[0] * 0.97, -0.045 * K, -0.015], s: [0.45, 1, 0.78] });
+    H.add(sphere(0.03 * K, 6, 5), shade(skin, 0.86), { p: [sd * HEAD_R * HEAD_S[0] * 1.0, -0.047 * K, -0.008], s: [0.4, 1, 0.75] }, 0);
+  }
   const fn = HAIR_FN[spec.hair];
-  const hairCol = (y: number) => '#' + new THREE.Color(shade(hair, 0.8)).lerp(new THREE.Color(hair), ss(-0.6, 0.2, y)).getHexString();
-  const curly = spec.hair === 'curly';
-  H.add(shellGeo(fn, hairCol, curly ? 28 : 32, 20, Math.PI * 0.86), null);
+  const crop = spec.hair === 'crop', curly = spec.hair === 'curly';
   const beanie = acc.has('beanie');
-  const blob = (d: V3, r: number, rad: number, s: V3 = [1, 1, 1]) => H.add(sphere(rad * K, 10, 7), hair, { p: hp(d, r), s });
+  const hairCol = (y: number, s: number) => {
+    const c = new THREE.Color(shade(hair, 0.8)).lerp(new THREE.Color(hair), ss(-0.6, 0.2, y));
+    // The cap shows only in the creases between locks and curls; its rolled edge stays lit.
+    return '#' + c.multiplyScalar(mix(1, crop || curly ? 0.72 : 0.8, ss(0.03, 0.16, s))).getHexString();
+  };
+  H.add(shellGeo(fn, hairCol, curly ? 28 : 32, 20, Math.PI * 0.86), null);
+  const hairAt = (d: V3) => hairAtFn(fn, d);
+  const surf = (d: V3) => hairAt(d);
+  const lockHex = (i: number) => shade(hair, 1.04 + 0.07 * Math.sin(i * 2.3));
+  const addLocks = (list: Lock[], o: LockOpts) => list.forEach(([ra, re, ta, te, w, th, x], i) =>
+    H.add(lockGeo(dirOf(ra, re), dirOf(ta, te), w, th, lockHex(i), { ...o, ...x }), null));
   switch (spec.hair) {
     case 'crop':
-      if (!beanie) H.add(sphere(0.06 * K, 8, 6), hair, { p: hp([0, 0.92, -0.38], 1.1), r: [-0.7, 0, 0.2], s: [0.8, 1.5, 0.7] });
-      break;
-    case 'bun':
       if (!beanie) {
-        blob([0, 0.82, -0.57], 1.18, 0.13, [1, 0.92, 1]);
-        H.add(torus(0.08, 0.022, Math.PI * 2, 6, 14), shade(hair, 0.7), { p: hp([0, 0.82, -0.57], 1.04), r: [Math.atan2(-0.82, -0.57), 0, 0] }, 0);
+        CROP_LOCKS.forEach(([ra, re, ta, te, w, th, tl = 1.03], i) =>
+          H.add(lockGeo(dirOf(ra, re), dirOf(ta, te), w, th, lockHex(i), { lift: [0.99, tl] }), null));
+        // A few pointed strands standing up at the crown.
+        const tufts: [V3, number, number, number, number][] = [[[0.03, 0.84, -0.54], 0.075, 0.04, -1.55, 0.25], [[-0.08, 0.88, -0.47], 0.06, 0.032, -1.3, -0.45]];
+        for (const [d, len, rad, rx, rz] of tufts) H.add(tuft(len * K, rad * K), hair, { p: hp(d, hairAt(d) - 0.07), r: [rx, 0, rz] });
       }
       break;
+    case 'swept':
+      addLocks(SWEPT_LOCKS, { surf, lift: [0.97, 0.99] });
+      break;
+    case 'bob':
+      addLocks(BOB_LOCKS, { surf, lift: [0.97, 0.975] });
+      break;
+    case 'bun': {
+      if (beanie) break;
+      addLocks(BUN_LOCKS, { surf, lift: [0.975, 0.97] });
+      // A coiled bun: two strands wound round a core, from its base up to the top.
+      const ax = new THREE.Vector3(0, 0.82, -0.57).normalize();
+      const C = new THREE.Vector3(...hp([0, 0.82, -0.57], 1.2)), rb = 0.135 * K;
+      const u = new THREE.Vector3(1, 0, 0), w = ax.clone().cross(u);
+      H.add(sphere(rb * 0.88, 12, 9), shade(hair, 0.72), { p: C.toArray() });
+      for (const ph of [0, PI]) {
+        const pts: V3[] = [];
+        for (let k = 0; k <= 20; k++) {
+          const f = k / 20, th = mix(1.85, 0.12, f), az = ph + f * PI * 2.4;
+          pts.push(C.clone().addScaledVector(u, rb * 0.86 * Math.sin(th) * Math.cos(az)).addScaledVector(w, rb * 0.86 * Math.sin(th) * Math.sin(az))
+            .addScaledVector(ax, rb * 0.86 * Math.cos(th)).toArray() as V3);
+        }
+        H.add(strandGeo(pts, (t) => 0.046 * K * Math.pow(Math.sin(PI * (0.03 + 0.94 * t)), 0.35), lockHex(ph ? 3 : 0), () => C, 40), null);
+      }
+      H.add(torus(0.085, 0.02, PI * 2, 6, 14), shade(hair, 0.62), { p: hp([0, 0.82, -0.57], 1.03), r: [Math.atan2(-0.82, -0.57), 0, 0] }, 0);
+      break;
+    }
     case 'ponytail': {
-      const base = hp([0, -0.3, -0.95], 1.04);
-      const prof = [[0, 0], [0.06, -0.03], [0.085, -0.1], [0.08, -0.18], [0.055, -0.26], [0.02, -0.32], [0, -0.33]].map(([x, y]) => new THREE.Vector2(x, y));
-      H.add(new THREE.LatheGeometry(prof, 12), hair, { p: [0, base[1], base[2] - 0.02], r: [0.38, 0, 0] });
-      H.add(torus(0.05, 0.02, Math.PI * 2, 6, 14), shade(hair, 0.65), { p: [0, base[1] - 0.005, base[2] - 0.02], r: [Math.PI / 2 + 0.38, 0, 0] }, 0);
+      addLocks(PONY_LOCKS, { surf, lift: [0.975, 0.97] });
+      if (!beanie) addLocks(PONY_FRINGE, { surf, lift: [0.99, 1.0] });
+      // The tail: a bundle of strands hanging down and back from the tie, twisting a little.
+      const base = new THREE.Vector3(...hp([0, -0.3, -0.95], 1.04)).add(new THREE.Vector3(0, 0, -0.02));
+      const axis = (t: number) => base.clone().add(new THREE.Vector3(0.025 * Math.sin(PI * t), -0.34 * t, -0.11 * t - 0.05 * Math.sin(PI * t)));
+      const e1 = new THREE.Vector3(1, 0, 0), e2 = new THREE.Vector3(0, -0.35, 0.94);
+      const strands = [[0, 0.045], ...[0, 1, 2, 3, 4].map((k) => [(k / 5) * PI * 2 + 0.4, 0.04])];
+      strands.forEach(([a0, r], i) => {
+        const off = i ? 0.042 : 0;
+        const pts: V3[] = [0, 0.15, 0.32, 0.5, 0.68, 0.85, 1].map((t) => {
+          const a = a0 + 0.9 * t, o = off * Math.sin(PI * Math.min(1, 0.12 + t * 1.05));
+          return axis(t).addScaledVector(e1, Math.cos(a) * o).addScaledVector(e2, Math.sin(a) * o).toArray() as V3;
+        });
+        H.add(strandGeo(pts, (t) => r * K * Math.pow(Math.sin(PI * (0.06 + 0.94 * t)), 0.5) * (1 - 0.25 * t), lockHex(i), axis), null);
+      });
+      H.add(torus(0.05, 0.02, PI * 2, 6, 14), shade(hair, 0.62), { p: [0, base.y - 0.005, base.z], r: [PI / 2 + 0.38, 0, 0] }, 0);
       break;
     }
     case 'curly': {
-      const puffs: [V3, number][] = beanie
-        ? [[[-0.85, -0.1, -0.35], 0.13], [[0.85, -0.1, -0.35], 0.13], [[0, -0.15, -0.95], 0.14], [[-0.55, -0.25, -0.75], 0.12], [[0.55, -0.25, -0.75], 0.12]]
-        : [[[-0.5, 0.78, 0.38], 0.14], [[0.5, 0.78, 0.38], 0.14], [[0, 0.75, -0.66], 0.16], [[-0.88, 0.32, -0.35], 0.145], [[0.88, 0.32, -0.35], 0.145]];
-      for (const [d, rad] of puffs) blob(d, 1.08, rad);
+      // Lots of springy curls over a dark cap; under a beanie only the ones below its band.
+      const n = 64;
+      for (let i = 0; i < n; i++) {
+        const y = 1 - (2 * (i + 0.5)) / n, rr = Math.sqrt(1 - y * y), d: V3 = [rr * Math.sin(i * 2.39996), y, rr * Math.cos(i * 2.39996)];
+        const az = Math.atan2(d[0], d[2]);
+        if (fn(d[0], d[1], d[2], az)[0] < 0.05 + 0.08 * Math.max(0, d[2])) continue;
+        if (beanie && beanieFn(d[0], d[1], d[2], az)[0] > 0.06) continue;
+        const rad = (0.082 + 0.012 * Math.sin(i * 1.7)) * K;
+        H.add(curlGeo(rad, new THREE.Vector3(...d), lockHex(i)), null, { p: hp(d, hairAt(d) - 0.05) });
+      }
       break;
     }
   }
-  const hairAt = (d: V3) => { const n = Math.hypot(...d); return shellR(fn, d[0] / n, d[1] / n, d[2] / n); };
   if (beanie) {
     H.add(shellGeo(beanieFn, (_y, s) => (s < 0.17 ? shade(ACC.beanie, 0.88) : ACC.beanie), 30, 14, Math.PI * 0.7), null);
   }
   if (acc.has('clips') && !beanie) {
     [[[0.42, 0.62, 0.66], ACC.clipA, -0.55], [[0.58, 0.5, 0.64], ACC.clipB, -0.75]].forEach(([d, c, rz]) => {
-      H.add(roundedBox(0.085, 0.022, 0.024, 0.01, 1), c as string, { p: hp(d as V3, hairAt(d as V3) + 0.02), r: [-0.45, 0.55, rz as number] }, 0);
+      H.add(roundedBox(0.085, 0.022, 0.024, 0.01, 1), c as string, { p: hp(d as V3, hairAt(d as V3) + 0.14), r: [-0.45, 0.55, rz as number] }, 0);
     });
   }
   if (acc.has('glasses')) {
@@ -346,8 +573,9 @@ function bodyGeometry(spec: CharacterSpec, standing: boolean): THREE.BufferGeome
     H.add(cyl(0.007, 0.007, 0.04 * K, 5), ACC.glasses, { p: [0, -0.046 * K, 0.31 * K], r: [0, 0, Math.PI / 2] }, 0);
   }
   if (acc.has('headphones')) {
-    const side = hairAt([1, -0.1, 0]) * HEAD_R * HEAD_S[0] + 0.03;
-    const topY = Math.max(hairAt([0, 1, 0]), curly ? 1.3 : 0) * HEAD_R * HEAD_S[1] + 0.03;
+    const lk = curly || beanie ? 0 : 0.04; // clear the locks lying on the shell
+    const side = hairAt([1, -0.1, 0]) * HEAD_R * HEAD_S[0] + 0.03 + lk * 0.6;
+    const topY = Math.max(hairAt([0, 1, 0]), curly ? 1.3 : 0) * HEAD_R * HEAD_S[1] + 0.03 + lk;
     H.add(torus(side, 0.026, Math.PI, 6, 18), ACC.phones, { p: [0, -0.02, -0.01], s: [1, (topY + 0.02) / side, 1] });
     for (const sd of [-1, 1]) {
       H.add(cyl(0.088, 0.088, 0.07, 14), ACC.phones, { p: [sd * (side + 0.005), -0.035, -0.01], r: [0, 0, Math.PI / 2] });
