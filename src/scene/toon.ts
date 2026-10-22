@@ -85,9 +85,11 @@ const _c = new THREE.Color();
 export class GeoBuilder {
   private parts: THREE.BufferGeometry[] = [];
 
-  add(geo: THREE.BufferGeometry, color: THREE.ColorRepresentation, xf: Xf = {}, outline = 1): this {
+  /** color === null keeps the geometry's existing colour/outline attributes (pre-built parts). */
+  add(geo: THREE.BufferGeometry, color: THREE.ColorRepresentation | null, xf: Xf = {}, outline = 1): this {
     const g = geo.index ? geo.toNonIndexed() : geo.clone();
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    const keep = color === null ? ['position', 'normal', 'color', 'outline'] : ['position', 'normal'];
+    for (const k of Object.keys(g.attributes)) if (!keep.includes(k)) g.deleteAttribute(k);
     if (!g.attributes.normal) g.computeVertexNormals();
     _p.set(...(xf.p ?? [0, 0, 0]));
     _q.setFromEuler(_e.set(...(xf.r ?? [0, 0, 0])));
@@ -95,6 +97,7 @@ export class GeoBuilder {
     if (typeof s === 'number') _s.setScalar(s); else _s.set(...s);
     g.applyMatrix4(_m.compose(_p, _q, _s));
     const n = g.attributes.position.count;
+    if (color === null) { this.parts.push(g); if (geo !== g && !geo.userData.keep) geo.dispose(); return this; }
     const col = new Float32Array(n * 3);
     _c.set(color);
     for (let i = 0; i < n; i++) { col[i * 3] = _c.r; col[i * 3 + 1] = _c.g; col[i * 3 + 2] = _c.b; }

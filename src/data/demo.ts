@@ -60,13 +60,13 @@ function botsFor(room: StoredRoom): PresenceMeta[] {
   const now = Date.now();
   const t = timerAt(room, now);
   for (let i = 0; i < room.bots; i++) {
-    const name = BOT_NAMES[Math.floor(hash(room.id, i, 'n') * BOT_NAMES.length + i) % BOT_NAMES.length];
+    const name = BOT_NAMES[(Math.floor(hash(room.id, 'n') * BOT_NAMES.length) + i) % BOT_NAMES.length];
     const awayBucket = Math.floor(now / (6 * 60_000));
     const awayChance = t.phase === 'break' ? 0.3 : 0.1;
     out.push({
       userId: `bot-${room.id}-${i}`,
       nickname: name,
-      avatar: Math.floor(hash(room.id, i, 'a') * 10),
+      avatar: (Math.floor(hash(room.id, 'a') * 10) + i * 3) % 10,
       away: hash(room.id, i, awayBucket) < awayChance,
       seat: -1,
       joinedAt: room.startedAt + i,
@@ -106,7 +106,8 @@ export function createDemoBackend(): Backend {
       return uid;
     },
     userId: () => uid,
-    async serverOffset() { return 0; },
+    // Demo only: ?skip=<minutes> shifts the clock so break states can be previewed.
+    async serverOffset() { return (Number(new URLSearchParams(location.search).get('skip')) || 0) * 60_000; },
     async listRooms(): Promise<RoomSummary[]> {
       return allRooms().filter((r) => r.isPublic).map((r) => ({ ...r, participants: Math.min(ROOM_CAP, r.bots) }));
     },

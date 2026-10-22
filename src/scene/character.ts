@@ -338,7 +338,7 @@ export class Character {
         this.tR.set(0.12 + 0.02 * Math.sin(t * 7) + (t % 2.6) * 0.03, TY + 0.012 * Math.max(0, Math.sin(t * 14)), 0.5 - line * 0.025 + 0.01 * Math.cos(t * 7));
         this.tL.set(-0.17, TY, 0.46);
         this.pen.visible = true;
-        this.leanT = 0.14; this.hpT = 0.42; this.hyT = 0.08;
+        this.leanT = 0.12; this.hpT = 0.26; this.hyT = 0.08;
         break;
       }
       case 'read': {
@@ -353,13 +353,13 @@ export class Character {
           if (this.hooks.page) this.hooks.page.rotation.z = p * Math.PI;
           if (this.pageT >= 1) { this.pageT = -1; if (this.hooks.page) this.hooks.page.rotation.z = 0; }
         }
-        this.leanT = 0.12; this.hpT = 0.46; this.hyT = 0.1 * Math.sin(t * 0.7);
+        this.leanT = 0.1; this.hpT = 0.3; this.hyT = 0.1 * Math.sin(t * 0.7);
         break;
       }
       case 'type':
         this.tL.set(-0.11, TY + 0.014 * Math.max(0, Math.sin(t * 17)), 0.46);
         this.tR.set(0.11, TY + 0.014 * Math.max(0, Math.sin(t * 15 + 1.7)), 0.46);
-        this.leanT = 0.06; this.hpT = 0.18; this.hyT = 0;
+        this.leanT = 0.04; this.hpT = 0.1; this.hyT = 0;
         break;
       case 'sip':
       case 'drink': {
@@ -378,7 +378,7 @@ export class Character {
       case 'phone':
         this.tL.set(-0.05, 0.6, 0.3 + 0.004 * Math.sin(t * 9)); this.tR.set(0.06, 0.61, 0.31);
         this.phone.visible = true;
-        this.leanT = 0.1; this.hpT = 0.5; this.hyT = 0.05;
+        this.leanT = 0.08; this.hpT = 0.36; this.hyT = 0.05;
         break;
       case 'lean':
         this.tL.set(-0.3, 0.12, -0.3); this.tR.set(0.3, 0.12, -0.3);
