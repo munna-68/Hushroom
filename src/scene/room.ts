@@ -8,12 +8,14 @@ import { EnvBuilder } from './envGeo';
 import { envMaterial, lightRig, N_LAMPS, PENDANT_LAMP, WINDOW_LAMP, stUniforms } from './envMaterial';
 import { buildWindowView, type WindowView } from './windowView';
 import { backpackGeo, buildKit, buildLamp, chairGeo, mugGeo, type LampInfo } from './props';
-import { cyl, materials, rng, roundedBox, sphere, torus, type V3 } from './toon';
+import { frame } from './paintings';
+import { buildDoor, buildDoorCasing, buildHallwayCorridor } from './hallway';
+import { cyl, materials, rng, roundedBox, sphere, torus } from './toon';
 import type { FocusAct, PageHook } from './character';
 import type { Atmo } from './atmosphere';
 import type { TierSettings } from './quality';
 import {
-  CHAIR_IN, COFFEE, COUNTER, DOOR, FLOOR_X1, FLOOR_Z1, KITS, LAMP_AT, LAMP_FADE, LAMP_TINT, MAX_SLOTS, PENDANT, SHELF,
+  CHAIR_IN, COFFEE, COUNTER, DOOR, FLOOR_Z1, KITS, LAMP_AT, LAMP_FADE, LAMP_TINT, MAX_SLOTS, PENDANT, SHELF,
   SOFA, STOOLS, TABLE, TABLE_TOP, WALL_H, WALL_X, WALL_Z, WELL, WINDOW, seatPose,
 } from './hall';
 
@@ -771,33 +773,27 @@ function plant(b: EnvBuilder, x: number, z: number, o: PlantOpts) {
   }
 }
 
-function frame(b: EnvBuilder, w: number, h: number, p: V3, ry: number, scene: 'sunset' | 'hills' | 'lake') {
-  const fwd = (d: number): V3 => [p[0] + Math.sin(ry) * d, p[1], p[2] + Math.cos(ry) * d];
-  b.add(roundedBox(w, h, 0.045, 0.012, 1), '#c99a62', { p: fwd(0.022), r: [0, ry, 0] });
-  b.add(new THREE.BoxGeometry(w - 0.08, h - 0.08, 0.01), '#efe4cb', { p: fwd(0.045), r: [0, ry, 0] });
-  const iw = w - 0.2, ih = h - 0.2;
-  const sky = scene === 'sunset' ? '#e8b77d' : scene === 'lake' ? '#a9c3cf' : '#b9cbc4';
-  b.add(new THREE.BoxGeometry(iw, ih, 0.01), sky, { p: fwd(0.05), r: [0, ry, 0] });
-  const right = new THREE.Vector3(Math.cos(ry), 0, -Math.sin(ry));
-  const at = (dx: number, dy: number, d: number): V3 => { const f = fwd(d); return [f[0] + right.x * dx, f[1] + dy, f[2] + right.z * dx]; };
-  b.add(new THREE.BoxGeometry(iw, ih * 0.38, 0.01), scene === 'lake' ? '#5f8a9c' : '#6f8f5c', { p: at(0, -ih * 0.31, 0.056), r: [0, ry, 0] });
-  b.add(sphere(1, 12, 6), scene === 'sunset' ? '#a4744a' : '#557a4a', { p: at(-iw * 0.18, -ih * 0.12, 0.054), r: [0, ry, 0], s: [iw * 0.42, ih * 0.22, 0.004] });
-  b.add(sphere(1, 12, 6), '#4c6a44', { p: at(iw * 0.22, -ih * 0.16, 0.057), r: [0, ry, 0], s: [iw * 0.36, ih * 0.16, 0.004] });
-  if (scene !== 'lake') b.add(sphere(1, 10, 6), scene === 'sunset' ? '#f6d48c' : '#f1e3b0', { p: at(iw * 0.18, ih * 0.2, 0.055), r: [0, ry, 0], s: [ih * 0.08, ih * 0.08, 0.003] });
-}
-
 // ---- shell ------------------------------------------------------------------------
 
 function buildShell(): THREE.BufferGeometry {
   const b = new EnvBuilder();
   const r = rng(42);
+  const WELL_X0 = WELL.x; // 3.55
+  const WELL_X1 = WELL.x1; // 5.50
+  const WELL_Z0 = WELL.z0; // -1.65
+  const WELL_Z1 = WELL.z1; // 2.60
+  const stairwellWidth = WELL_X1 - WELL_X0; // 1.95m
+  const L_stair = WELL_Z1 - WELL_Z0; // 4.25m
+  const Z_stair = (WELL_Z0 + WELL_Z1) / 2; // 0.475m
+
   // Floor: dark underlay showing through the plank seams, then staggered oak planks.
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + 0.6, 0.04, WELL.z - WALL_Z + 0.3), '#3a2216', { p: [(WALL_X + FLOOR_X1) / 2, -0.035, (WALL_Z + WELL.z) / 2] });
-  b.add(new THREE.BoxGeometry(WELL.x - WALL_X + 0.3, 0.04, FLOOR_Z1 - WELL.z + 0.01), '#3a2216', { p: [(WALL_X + WELL.x) / 2, -0.035, (WELL.z + FLOOR_Z1) / 2] });
+  b.add(new THREE.BoxGeometry(WELL_X1 - WALL_X + 0.6, 0.04, WELL_Z0 - WALL_Z + 0.3), '#3a2216', { p: [(WALL_X + WELL_X1) / 2, -0.035, (WALL_Z + WELL_Z0) / 2] });
+  b.add(new THREE.BoxGeometry(WELL_X0 - WALL_X + 0.3, 0.04, WELL_Z1 - WELL_Z0 + 0.01), '#3a2216', { p: [(WALL_X + WELL_X0) / 2, -0.035, (WELL_Z0 + WELL_Z1) / 2] });
+  b.add(new THREE.BoxGeometry(WELL_X1 - WALL_X + 0.6, 0.04, FLOOR_Z1 - WELL_Z1 + 0.3), '#3a2216', { p: [(WALL_X + WELL_X1) / 2, -0.035, (WELL_Z1 + FLOOR_Z1) / 2] });
   const PW = 0.34;
   for (let z = WALL_Z; z < FLOOR_Z1 - 0.01; z += PW) {
     const zc = z + PW / 2;
-    const xEnd = zc > WELL.z ? WELL.x : FLOOR_X1;
+    const xEnd = (zc >= WELL_Z0 && zc <= WELL_Z1) ? WELL_X0 : WELL_X1;
     let x = WALL_X - r() * 1.6;
     while (x < xEnd) {
       const len = 1.5 + r() * 2.2;
@@ -810,6 +806,20 @@ function buildShell(): THREE.BufferGeometry {
       x += len;
     }
   }
+
+  // Raised honey-oak border nosing around stairwell rim (sits slightly proud at Y = 0.005 to cover all cut plank edges cleanly)
+  // Front rim under front balustrade
+  b.add(roundedBox(stairwellWidth + 0.12, 0.036, 0.22, 0.008, 1), '#b8743c', {
+    p: [(WELL_X0 + WELL_X1) / 2, -0.012, WELL_Z1 + 0.09],
+  });
+  // Left rim under left balustrade
+  b.add(roundedBox(0.22, 0.036, L_stair + 0.22, 0.008, 1), '#b8743c', {
+    p: [WELL_X0 - 0.09, -0.012, Z_stair],
+  });
+  // Rear rim under entry threshold
+  b.add(roundedBox(stairwellWidth + 0.12, 0.036, 0.22, 0.008, 1), '#b8743c', {
+    p: [(WELL_X0 + WELL_X1) / 2, -0.012, WELL_Z0 - 0.09],
+  });
   // Rug under the table: teal with a thin gold double border.
   const RW = 7.4, RD = 4.3;
   b.add(roundedBox(RW, 0.024, RD, 0.01, 1), '#244f4c', { p: [0, 0.012, 0] });
@@ -837,18 +847,18 @@ function buildShell(): THREE.BufferGeometry {
   // Back wall (door wall): deep teal, door opening.
   const dx0 = DOOR.x - DOOR.w / 2, dx1 = DOOR.x + DOOR.w / 2;
   const bw = new THREE.Shape();
-  bw.moveTo(WALL_X - T, 0); bw.lineTo(dx0, 0); bw.lineTo(dx0, DOOR.h); bw.lineTo(dx1, DOOR.h); bw.lineTo(dx1, 0); bw.lineTo(FLOOR_X1, 0); bw.lineTo(FLOOR_X1, WALL_H); bw.lineTo(WALL_X - T, WALL_H); bw.closePath();
+  bw.moveTo(WALL_X - T, 0); bw.lineTo(dx0, 0); bw.lineTo(dx0, DOOR.h); bw.lineTo(dx1, DOOR.h); bw.lineTo(dx1, 0); bw.lineTo(WELL_X1 + T, 0); bw.lineTo(WELL_X1 + T, WALL_H); bw.lineTo(WALL_X - T, WALL_H); bw.closePath();
   b.add(new THREE.ExtrudeGeometry(bw, { depth: T, bevelEnabled: false }), TEAL_WALL, { p: [0, 0, WALL_Z - T] });
-  // Wall tops read as a cut section.
+  // Wall tops read as a cut section (along left wall and back wall only).
   b.add(new THREE.BoxGeometry(T + 0.02, 0.03, FLOOR_Z1 - WALL_Z + T), '#3b2a24', { p: [WALL_X - T / 2, WALL_H + 0.015, (FLOOR_Z1 + WALL_Z - T) / 2] });
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + T, 0.03, T + 0.02), '#3b2a24', { p: [(FLOOR_X1 + WALL_X - T) / 2, WALL_H + 0.015, WALL_Z - T / 2] });
-  // Crown moulding along both walls.
+  b.add(new THREE.BoxGeometry(WELL_X1 - WALL_X + 2 * T, 0.03, T + 0.02), '#3b2a24', { p: [(WELL_X1 + WALL_X) / 2, WALL_H + 0.015, WALL_Z - T / 2] });
+  // Crown moulding along left wall and back wall.
   b.add(roundedBox(0.12, 0.14, FLOOR_Z1 - WALL_Z, 0.03, 1), '#e2c8a0', { p: [WALL_X + 0.05, WALL_H - 0.3, (FLOOR_Z1 + WALL_Z) / 2] });
-  b.add(roundedBox(FLOOR_X1 - WALL_X, 0.14, 0.12, 0.03, 1), '#24504f', { p: [(FLOOR_X1 + WALL_X) / 2, WALL_H - 0.3, WALL_Z + 0.05] });
+  b.add(roundedBox(WELL_X1 - WALL_X + T, 0.14, 0.12, 0.03, 1), '#24504f', { p: [(WELL_X1 + WALL_X + T) / 2, WALL_H - 0.3, WALL_Z + 0.05] });
 
   // Back wall wainscot: wood panels, top rail, baseboard (gap at the door).
   const WH = 1.28;
-  const runs: [number, number][] = [[WALL_X, dx0 - 0.13], [dx1 + 0.13, FLOOR_X1]];
+  const runs: [number, number][] = [[WALL_X, dx0 - 0.13], [dx1 + 0.13, WELL_X1]];
   for (const [a, c] of runs) {
     const w = c - a;
     b.add(new THREE.BoxGeometry(w, WH, 0.04), '#8c532e', { p: [(a + c) / 2, WH / 2, WALL_Z + 0.02] });
@@ -864,26 +874,47 @@ function buildShell(): THREE.BufferGeometry {
   b.add(new THREE.BoxGeometry(0.04, 0.98, FLOOR_Z1 - COUNTER.z1), TEAL_PANEL, { p: [WALL_X + 0.02, 0.49, (FLOOR_Z1 + COUNTER.z1) / 2] });
   b.add(roundedBox(0.09, 0.06, FLOOR_Z1 - COUNTER.z1, 0.02, 1), OAK, { p: [WALL_X + 0.045, 0.98, (FLOOR_Z1 + COUNTER.z1) / 2] });
   b.add(roundedBox(0.06, 0.14, FLOOR_Z1 - WALL_Z, 0.015, 1), '#6e4128', { p: [WALL_X + 0.03, 0.07, (FLOOR_Z1 + WALL_Z) / 2] });
+
   // Pilaster on the back wall left of the door.
   const PX = 1.0;
   b.add(roundedBox(0.36, WALL_H - 0.4, 0.14, 0.03, 1), '#e7d3b0', { p: [PX, (WALL_H - 0.4) / 2, WALL_Z + 0.07] });
   b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, 0.06, WALL_Z + 0.1] });
   b.add(roundedBox(0.44, 0.1, 0.2, 0.03, 1), '#e2cba4', { p: [PX, WH + 0.04, WALL_Z + 0.1] });
-  // Hallway behind the door.
-  b.add(new THREE.BoxGeometry(DOOR.w + 0.6, DOOR.h + 0.4, 1.6), '#3b2b22', { p: [DOOR.x, DOOR.h / 2, WALL_Z - T - 0.8] });
 
-  // Stairwell: floor edge, dark teal walls going down.
-  const D = 3.6;
-  b.add(new THREE.BoxGeometry(0.3, 0.29, FLOOR_Z1 - WELL.z), '#7a4a2b', { p: [WELL.x - 0.15, -0.175, (FLOOR_Z1 + WELL.z) / 2] });
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, 0.29, 0.3), '#7a4a2b', { p: [(FLOOR_X1 + WELL.x) / 2, -0.175, WELL.z - 0.15] });
-  b.add(new THREE.BoxGeometry(0.1, D, FLOOR_Z1 - WELL.z), '#1f3a3a', { p: [WELL.x - 0.05, -0.32 - D / 2, (FLOOR_Z1 + WELL.z) / 2] });
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, D, 0.1), '#21403f', { p: [(FLOOR_X1 + WELL.x) / 2, -0.32 - D / 2, WELL.z - 0.05] });
-  b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL.x, 0.1, FLOOR_Z1 - WELL.z), '#14201f', { p: [(FLOOR_X1 + WELL.x) / 2, -0.32 - D, (FLOOR_Z1 + WELL.z) / 2] });
-  // A flight of stairs going down along the back of the well.
-  for (let s = 0; s < 10; s++) {
-    b.add(roundedBox(1.1, 0.06, 0.32, 0.015, 1), '#6b4128', { p: [WELL.x + 1.2 + s * 0.3, -0.36 - s * 0.3, WELL.z + 0.62] });
-    b.add(new THREE.BoxGeometry(1.1, 0.3, 0.02), '#2c3d3b', { p: [WELL.x + 1.05 + s * 0.3, -0.21 - s * 0.3, WELL.z + 0.62] });
-  }
+  // Structural stairwell enclosure walls & lower library landing floor
+  // Left pit wall (below upper floor only, Y: -2.60 to -0.05)
+  b.add(new THREE.BoxGeometry(0.14, 2.55, L_stair), '#172b2b', {
+    p: [WELL_X0 - 0.07, -1.325, Z_stair],
+  });
+  // Front pit wall under front balustrade (below floor only, Y: -2.60 to -0.05)
+  b.add(new THREE.BoxGeometry(stairwellWidth, 2.55, 0.14), '#172b2b', {
+    p: [(WELL_X0 + WELL_X1) / 2, -1.325, WELL_Z1 + 0.07],
+  });
+  // Back pit wall under entry threshold (below floor only, Y: -2.40 to -0.05)
+  b.add(new THREE.BoxGeometry(stairwellWidth, 2.35, 0.14), '#172b2b', {
+    p: [(WELL_X0 + WELL_X1) / 2, -1.225, WELL_Z0 - 0.07],
+  });
+  // Right pit wall (below upper floor only, Y: -2.60 to -0.05; no walls above floor level)
+  b.add(new THREE.BoxGeometry(0.14, 2.55, L_stair), '#172b2b', {
+    p: [WELL_X1 + 0.07, -1.325, Z_stair],
+  });
+
+  // Lower library landing floor at Y = -2.22m
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.4, 0.16, 1.45), '#c88750', {
+    p: [(WELL_X0 + WELL_X1) / 2, -2.22 - 0.08, WELL_Z1 - 0.65],
+  });
+
+  // Oak fascia trim board along the drop-off edges
+  b.add(new THREE.BoxGeometry(0.04, 0.22, L_stair), '#9c5f30', {
+    p: [WELL_X0 + 0.015, -0.11, Z_stair],
+  });
+  b.add(new THREE.BoxGeometry(stairwellWidth, 0.22, 0.04), '#9c5f30', {
+    p: [(WELL_X0 + WELL_X1) / 2, -0.11, WELL_Z1 - 0.015],
+  });
+  b.add(new THREE.BoxGeometry(0.04, 0.22, L_stair), '#9c5f30', {
+    p: [WELL_X1 - 0.015, -0.11, Z_stair],
+  });
+
   return b.build();
 }
 
@@ -1074,54 +1105,303 @@ function buildSofaCorner(b: EnvBuilder) {
   b.add(new THREE.BoxGeometry(0.18, 0.025, 0.005), '#efe4cb', { p: [cx + 0.14 + Math.sin(0.5) * 0.135, 0.462, cz + 0.12 + Math.cos(0.5) * 0.135], r: [0, 0.5, 0] });
 }
 
-function buildBalustrade(b: EnvBuilder) {
-  const W = '#b8743c', W2 = '#9c5f30';
-  const rail = (ax: number, az: number, bx: number, bz: number) => {
-    const L = Math.hypot(bx - ax, bz - az), ry = Math.atan2(bx - ax, bz - az);
-    const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-    b.add(roundedBox(0.1, 0.07, L, 0.03, 1), W, { p: [mx, 0.98, mz], r: [0, ry, 0] });
-    b.add(roundedBox(0.07, 0.05, L, 0.02, 1), W2, { p: [mx, 0.12, mz], r: [0, ry, 0] });
-    const n = Math.floor(L / 0.17);
-    for (let k = 1; k < n; k++) {
-      const t = k / n;
-      b.add(roundedBox(0.045, 0.82, 0.045, 0.012, 1), W, { p: [ax + (bx - ax) * t, 0.55, az + (bz - az) * t] });
-    }
-    for (const [px, pz] of [[ax, az], [bx, bz]]) {
-      b.add(roundedBox(0.13, 1.1, 0.13, 0.03, 1), W2, { p: [px, 0.55, pz] });
-      b.add(roundedBox(0.16, 0.06, 0.16, 0.03, 1), W, { p: [px, 1.12, pz] });
-    }
-  };
-  rail(WELL.x + 0.06, WELL.z + 0.06, WELL.x + 0.06, 2.6);
-  rail(WELL.x + 0.06, 2.6, WELL.x + 0.06, FLOOR_Z1);
-  rail(WELL.x + 0.06, WELL.z + 0.06, FLOOR_X1, WELL.z + 0.06);
-}
-
-function buildDoorCasing(b: EnvBuilder) {
-  const C = '#a0623a';
-  const x0 = DOOR.x - DOOR.w / 2, x1 = DOOR.x + DOOR.w / 2;
-  b.add(roundedBox(0.14, DOOR.h + 0.12, 0.08, 0.03, 1), C, { p: [x0 - 0.07, (DOOR.h + 0.12) / 2, WALL_Z + 0.04] });
-  b.add(roundedBox(0.14, DOOR.h + 0.12, 0.08, 0.03, 1), C, { p: [x1 + 0.07, (DOOR.h + 0.12) / 2, WALL_Z + 0.04] });
-  b.add(roundedBox(DOOR.w + 0.36, 0.16, 0.1, 0.03, 1), C, { p: [DOOR.x, DOOR.h + 0.1, WALL_Z + 0.05] });
-  // Jambs lining the opening.
-  b.add(new THREE.BoxGeometry(0.03, DOOR.h, 0.3), '#8a522e', { p: [x0 + 0.015, DOOR.h / 2, WALL_Z - 0.15] });
-  b.add(new THREE.BoxGeometry(0.03, DOOR.h, 0.3), '#8a522e', { p: [x1 - 0.015, DOOR.h / 2, WALL_Z - 0.15] });
-  b.add(new THREE.BoxGeometry(DOOR.w, 0.03, 0.3), '#8a522e', { p: [DOOR.x, DOOR.h - 0.015, WALL_Z - 0.15] });
-}
-
-function buildDoor(): THREE.BufferGeometry {
+function createTurnedNewelPost(height = 1.04): THREE.BufferGeometry {
   const b = new EnvBuilder();
-  const w = DOOR.w - 0.04, h = DOOR.h - 0.02;
-  const D = '#8f532c', P = '#7d4725';
-  b.add(roundedBox(w, h, 0.055, 0.015, 1), D, { p: [w / 2, h / 2, 0] });
-  for (let rr = 0; rr < 3; rr++) for (let c = 0; c < 2; c++) {
-    const ph = rr === 1 ? 0.62 : 0.5;
-    const py = [0.38, 1.08, 1.78][rr];
-    b.add(roundedBox(w / 2 - 0.16, ph, 0.02, 0.02, 1), P, { p: [w * (c ? 0.73 : 0.27), py, 0.03] });
-    b.add(roundedBox(w / 2 - 0.22, ph - 0.07, 0.024, 0.02, 1), '#94582f', { p: [w * (c ? 0.73 : 0.27), py, 0.034] });
-  }
-  b.add(roundedBox(0.05, 0.14, 0.02, 0.01, 1), '#d2a64e', { p: [w - 0.09, 1.0, 0.04] });
-  b.add(roundedBox(0.12, 0.022, 0.03, 0.01, 1), '#d9b05a', { p: [w - 0.13, 1.03, 0.065] });
+  const honeyOak = '#b8743c';
+  const darkerOak = '#9c5f30';
+
+  // Square base plinth
+  b.add(new THREE.BoxGeometry(0.115, 0.34, 0.115), darkerOak, { p: [0, 0.17, 0] }, { ao: 0.25 });
+
+  // Decorative base collar molding
+  b.add(new THREE.BoxGeometry(0.13, 0.03, 0.13), honeyOak, { p: [0, 0.35, 0] });
+
+  // Turned middle shaft
+  const shaftH = height - 0.52;
+  b.add(new THREE.CylinderGeometry(0.046, 0.052, shaftH, 16), honeyOak, { p: [0, 0.36 + shaftH / 2, 0] });
+
+  // Upper square block where handrail joins
+  b.add(new THREE.BoxGeometry(0.105, 0.14, 0.105), darkerOak, { p: [0, height - 0.11, 0] });
+
+  // Acorn / sphere finial cap
+  b.add(new THREE.CylinderGeometry(0.045, 0.058, 0.025, 16), honeyOak, { p: [0, height - 0.025, 0] });
+  b.add(new THREE.SphereGeometry(0.052, 16, 16), honeyOak, { p: [0, height + 0.03, 0], s: [1, 1.18, 1] });
+
   return b.build();
+}
+
+function createTurnedBaluster(height = 0.84): THREE.BufferGeometry {
+  const b = new EnvBuilder();
+  const honeyOak = '#b8743c';
+  const darkerOak = '#9c5f30';
+
+  // Base
+  b.add(new THREE.BoxGeometry(0.034, 0.14, 0.034), honeyOak, { p: [0, 0.07, 0] });
+
+  // Turned spindle
+  b.add(new THREE.CylinderGeometry(0.015, 0.019, height - 0.24, 10), honeyOak, { p: [0, height * 0.5, 0] });
+
+  // Torus ring
+  b.add(new THREE.TorusGeometry(0.02, 0.006, 8, 12), darkerOak, { p: [0, height * 0.38, 0], r: [Math.PI / 2, 0, 0] });
+
+  // Top block
+  b.add(new THREE.BoxGeometry(0.032, 0.10, 0.032), honeyOak, { p: [0, height - 0.05, 0] });
+
+  return b.build();
+}
+
+function addBalustradeRun(
+  b: EnvBuilder,
+  postGeo: THREE.BufferGeometry,
+  balusterGeo: THREE.BufferGeometry,
+  ax: number, az: number,
+  bx: number, bz: number,
+  railHeight = 0.92,
+  includeStartPost = true,
+  includeEndPost = true,
+) {
+  const honeyOak = '#b8743c';
+  const darkerOak = '#9c5f30';
+  const dx = bx - ax, dz = bz - az;
+  const L = Math.hypot(dx, dz);
+  const ry = Math.atan2(dx, dz);
+  const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+
+  // Bottom shoe rail
+  b.add(new THREE.BoxGeometry(0.075, 0.045, L), darkerOak, { p: [mx, 0.0225, mz], r: [0, ry, 0] });
+
+  // Moulded top handrail
+  b.add(roundedBox(0.088, 0.055, L, 0.015, 1), honeyOak, { p: [mx, railHeight, mz], r: [0, ry, 0] });
+
+  // Sub-rail under top handrail
+  b.add(new THREE.BoxGeometry(0.06, 0.022, L), darkerOak, { p: [mx, railHeight - 0.035, mz], r: [0, ry, 0] });
+
+  // Evenly spaced balusters
+  const spacing = 0.135;
+  const count = Math.max(1, Math.floor((L - 0.18) / spacing));
+  const actualStep = (L - 0.16) / count;
+  for (let i = 0; i <= count; i++) {
+    const dist = 0.08 + i * actualStep;
+    if (dist < 0.09 || dist > L - 0.09) continue;
+    const t = dist / L;
+    const px = ax + dx * t;
+    const pz = az + dz * t;
+    b.add(balusterGeo, null, { p: [px, 0.045, pz] });
+  }
+
+  if (includeStartPost) {
+    b.add(postGeo, null, { p: [ax, 0, az] });
+  }
+  if (includeEndPost) {
+    b.add(postGeo, null, { p: [bx, 0, bz] });
+  }
+}
+
+function addBookRow(b: EnvBuilder, width: number, x: number, y: number, z: number) {
+  const palette = ['#8b261d', '#1e4d3b', '#243b55', '#9c622b', '#5c2c45', '#3b5338', '#7a4928'];
+  let cursor = -width / 2 + 0.03;
+  let idx = 0;
+  while (cursor < width / 2 - 0.04) {
+    const bW = 0.028 + ((idx * 17) % 18) * 0.0012;
+    const bH = 0.19 + ((idx * 23) % 10) * 0.006;
+    const bD = 0.17 + ((idx * 13) % 6) * 0.005;
+    const color = palette[idx % palette.length];
+    b.add(new THREE.BoxGeometry(bW, bH, bD), color, { p: [x + cursor + bW / 2, y + bH / 2, z] }, { ao: 0.2 });
+    cursor += bW + 0.004;
+    idx++;
+  }
+}
+
+function buildBalustrade(b: EnvBuilder) {
+  const honeyOak = '#b8743c';
+  const darkerOak = '#9c5f30';
+  const agedBrass = '#d4a84f';
+  const walnutWood = '#6e3f1d';
+
+  const holeMinX = WELL.x; // 3.55
+  const holeMaxX = WELL.x1; // 5.50
+  const holeMinZ = WELL.z0; // -1.65 (Back: stair entry)
+  const holeMaxZ = WELL.z1; // 2.60 (Front: lower landing & front balustrade)
+
+  const postGeo = createTurnedNewelPost(1.04);
+  const balusterGeo = createTurnedBaluster(0.85);
+
+  // 1. BALUSTRADES
+  // Left side balustrade along X = holeMinX from Z = holeMinZ to Z = holeMaxZ
+  addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMinZ, holeMinX, holeMaxZ, 0.92, true, true);
+
+  // Front balustrade run across front edge (Z = holeMaxZ) facing the camera
+  addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMaxZ, holeMaxX - 0.12, holeMaxZ, 0.92, false, true);
+
+  // Throat return balustrade segment at the back entry (Z = holeMinZ, X = holeMinX to 3.90)
+  addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMinZ, 3.90, holeMinZ, 0.92, false, true);
+
+  // Right-hand entry newel post against the right side at the back (X = holeMaxX - 0.12, Z = holeMinZ)
+  b.add(postGeo, null, { p: [holeMaxX - 0.12, 0, holeMinZ] });
+
+  // 2. FLUSH TOP LANDING NOSING & STAIRS (DESCENDING FORWARD TOWARD +Z)
+  const stairXCenter = 4.72; // Centered in the open entry
+  const stairWidth = 1.46;
+  const numSteps = 12;
+  const stepRise = 0.185;
+  const stepRun = 0.255;
+  const totalRun = numSteps * stepRun; // 3.06m
+  const totalDrop = numSteps * stepRise; // 2.22m
+
+  // Flush top landing nosing plank at Z = holeMinZ, Y = 0
+  b.add(roundedBox(stairWidth + 0.04, 0.034, 0.14, 0.008, 1), honeyOak, {
+    p: [stairXCenter, -0.012, holeMinZ - 0.04],
+  });
+
+  // Steps descending forward in +Z direction
+  for (let i = 0; i < numSteps; i++) {
+    const treadY = -(i + 1) * stepRise;
+    const treadZ = holeMinZ + (i + 0.5) * stepRun;
+
+    // Closed vertical riser (starts strictly under previous tread / nosing plank)
+    const riserTop = i === 0 ? -0.012 : -(i * stepRise);
+    const riserH = riserTop - treadY;
+    b.add(
+      new THREE.BoxGeometry(stairWidth - 0.02, riserH, 0.022),
+      darkerOak,
+      { p: [stairXCenter, (riserTop + treadY) / 2, holeMinZ + i * stepRun + 0.01] },
+      { ao: 0.18 },
+    );
+
+    // Horizontal oak tread
+    b.add(
+      roundedBox(stairWidth, 0.036, stepRun + 0.025, 0.008, 1),
+      honeyOak,
+      { p: [stairXCenter, treadY, treadZ] },
+      { ao: 0.12 },
+    );
+
+    // Rounded front bullnose nosing on front edge of each tread (facing +Z)
+    b.add(
+      new THREE.CylinderGeometry(0.018, 0.018, stairWidth, 12),
+      honeyOak,
+      { p: [stairXCenter, treadY, treadZ + stepRun / 2 + 0.01], r: [0, 0, Math.PI / 2] },
+    );
+
+    // Warm recessed architectural step light fixture on every 3rd step along the right stringer
+    if (i % 3 === 1) {
+      b.add(
+        new THREE.BoxGeometry(0.015, 0.045, 0.09),
+        '#ffea9f',
+        { p: [holeMaxX - 0.025, treadY + 0.09, treadZ] },
+        { glow: 1.5 },
+      );
+    }
+  }
+
+  // 3. SOLID TIMBER STRINGERS
+  const stringerLength = Math.hypot(totalRun, totalDrop) + 0.25;
+  const pitchAngle = Math.atan2(totalDrop, totalRun);
+
+  for (const xOffset of [-stairWidth / 2 - 0.025, stairWidth / 2 + 0.025]) {
+    b.add(
+      new THREE.BoxGeometry(0.055, 0.28, stringerLength),
+      darkerOak,
+      {
+        p: [stairXCenter + xOffset, -totalDrop / 2 - 0.08, holeMinZ + totalRun / 2],
+        r: [pitchAngle, 0, 0],
+      },
+      { ao: 0.2 },
+    );
+  }
+
+  const lowerLandingY = -totalDrop; // -2.22m
+
+  // 4. OPEN DESCENDING BANISTER WITH TURNED BALUSTERS ALONG RIGHT STRINGER
+  const wallHandrailLength = stringerLength - 0.1;
+  const handrailX = holeMaxX - 0.12;
+  const midY = -totalDrop / 2;
+  const midZ = holeMinZ + totalRun / 2;
+
+  // Moulded top handrail
+  b.add(
+    new THREE.CylinderGeometry(0.032, 0.032, wallHandrailLength, 16),
+    honeyOak,
+    {
+      p: [handrailX, midY + 0.88, midZ],
+      r: [Math.PI / 2 + pitchAngle, 0, 0],
+    },
+  );
+
+  // Sub-rail under top handrail
+  b.add(
+    new THREE.BoxGeometry(0.045, 0.02, wallHandrailLength),
+    darkerOak,
+    {
+      p: [handrailX, midY + 0.84, midZ],
+      r: [pitchAngle, 0, 0],
+    },
+  );
+
+  // Bottom shoe rail along the stringer
+  b.add(
+    new THREE.BoxGeometry(0.055, 0.032, wallHandrailLength),
+    darkerOak,
+    {
+      p: [handrailX, midY + 0.06, midZ],
+      r: [pitchAngle, 0, 0],
+    },
+  );
+
+  // Lower newel post anchoring the right handrail at the lower landing
+  b.add(postGeo, null, { p: [handrailX, lowerLandingY, holeMinZ + totalRun] });
+
+  // Matching turned balusters rising from shoe rail up to the sub-rail
+  const stairBalusterGeo = createTurnedBaluster(0.76);
+  for (let i = 0; i < numSteps; i++) {
+    const by = -(i + 0.5) * stepRise + 0.075;
+    const bz = holeMinZ + (i + 0.5) * stepRun;
+    b.add(stairBalusterGeo, null, { p: [handrailX, by, bz] });
+  }
+  stairBalusterGeo.dispose();
+
+  // 5. LOWER LIBRARY HALL LANDING & BOOKSHELF AT BOTTOM OF STAIRS
+
+  // Lower library bookshelf against front wall of bottom landing (facing -Z)
+  b.add(
+    roundedBox(1.75, 2.05, 0.28, 0.02, 1),
+    walnutWood,
+    { p: [stairXCenter - 0.2, lowerLandingY + 1.025, holeMaxZ - 0.16] },
+    { ao: 0.3 },
+  );
+
+  // 4 shelves of books
+  for (let row = 0; row < 4; row++) {
+    const sy = lowerLandingY + 0.35 + row * 0.44;
+    b.add(
+      new THREE.BoxGeometry(1.68, 0.03, 0.26),
+      honeyOak,
+      { p: [stairXCenter - 0.2, sy, holeMaxZ - 0.16] },
+    );
+    addBookRow(b, 1.5, stairXCenter - 0.2, sy + 0.015, holeMaxZ - 0.16);
+  }
+
+  // 6. WARM SCONCE IN LOWER LIBRARY HALL (Above bookshelf illuminating the books)
+  b.add(
+    new THREE.CylinderGeometry(0.07, 0.07, 0.02, 16),
+    agedBrass,
+    { p: [stairXCenter - 0.2, lowerLandingY + 2.15, holeMaxZ - 0.02], r: [Math.PI / 2, 0, 0] },
+  );
+  b.add(
+    new THREE.CylinderGeometry(0.012, 0.012, 0.14, 8),
+    agedBrass,
+    { p: [stairXCenter - 0.2, lowerLandingY + 2.15, holeMaxZ - 0.08] },
+  );
+  b.add(
+    new THREE.CylinderGeometry(0.045, 0.085, 0.14, 16),
+    '#fff3d1',
+    { p: [stairXCenter - 0.2, lowerLandingY + 2.22, holeMaxZ - 0.12] },
+    { glow: 1.8 },
+  );
+
+  // Clean up reusable template geometries
+  postGeo.dispose();
+  balusterGeo.dispose();
 }
 
 function buildPendant(b: EnvBuilder) {
@@ -1151,14 +1431,17 @@ export function buildRoom(): RoomBuild {
   buildSofaCorner(fb);
   buildBalustrade(fb);
   buildDoorCasing(fb);
+  buildHallwayCorridor(fb, group);
   buildPendant(fb);
-  frame(fb, 0.82, 0.64, [-1.15, 2.4, WALL_Z], 0, 'hills');
-  frame(fb, 0.6, 0.76, [0.05, 2.3, WALL_Z], 0, 'sunset');
-  frame(fb, 0.62, 0.8, [4.45, 2.35, WALL_Z], 0, 'lake');
+  const paintings: THREE.Mesh[] = [];
+  // Two paintings spaced out on the left wall (Misty Evergreen Hills and Golden Hour Sunset)
+  paintings.push(frame(fb, 0.76, 0.76, [-1.25, 2.4, WALL_Z], 0, 'hills', 4092));
+  paintings.push(frame(fb, 0.76, 0.76, [-0.05, 2.4, WALL_Z], 0, 'sunset', 4092));
+  // The third painting on the right wall section past the door (Alpine Mirror Lake)
+  paintings.push(frame(fb, 0.76, 0.76, [4.38, 2.4, WALL_Z], 0, 'lake', 4092));
+  paintings.forEach((p) => group.add(p));
   plant(fb, 1.48, WALL_Z + 0.42, { pot: '#efe8dc', potType: 'ceramic', style: 'tree', potR: 0.21, potH: 0.38, leaves: 26, height: 1.25, seed: 719 });
-  plant(fb, 3.72, WALL_Z + 0.45, { pot: TERRA, potType: 'fluted', style: 'bush', potR: 0.19, potH: 0.26, leaves: 28, height: 0.85, droop: 0.54, seed: 928 });
   plant(fb, WALL_X + 0.45, 4.15, { pot: TERRA, potType: 'terracotta', style: 'bush', potR: 0.18, potH: 0.26, leaves: 22, height: 0.85, droop: 0.5, seed: 6 });
-  plant(fb, WELL.x - 0.4, 2.9, { pot: '#efe8dc', potType: 'ceramic', style: 'pilea', potR: 0.17, potH: 0.26, leaves: 18, height: 0.72, droop: 0.45, seed: 8, greens: ['#7fae5a', '#6a9a4c', '#8fbb66'] });
   plant(fb, -2.6, WALL_Z + 0.45, { pot: TERRA, potType: 'terracotta', style: 'pilea', potR: 0.17, potH: 0.25, leaves: 20, height: 0.75, droop: 0.48, seed: 402 });
 
   // Seat lamps (bodies in the furniture mesh; shades glow with the lamp level).
@@ -1185,11 +1468,17 @@ export function buildRoom(): RoomBuild {
   const books = buildBooks(levels);
   group.add(books);
 
-  // Door on a hinge at its left edge.
+  // Door on a hinge at its left edge with rotating architectural lever handle.
+  const { doorGeo, leverGroup } = buildDoor();
   const door = new THREE.Group();
   door.position.set(DOOR.x - DOOR.w / 2 + 0.02, 0, WALL_Z - 0.06);
-  const doorMesh = new THREE.Mesh(buildDoor(), shellMat);
+  const doorMesh = new THREE.Mesh(doorGeo, shellMat);
+  doorMesh.castShadow = true;
+  doorMesh.receiveShadow = true;
   door.add(doorMesh);
+  door.add(leverGroup);
+  door.userData.lever = leverGroup;
+  door.userData.manualOpen = false;
   group.add(door);
 
   // Window glass + view.
@@ -1345,8 +1634,8 @@ export function buildRoom(): RoomBuild {
     ...STOOLS.map(([x, z]): [number, number, number, number, number] => [x, z, 0.6, 0.6, 0.35]),
     [WALL_X + 0.4, (COUNTER.z0 + COUNTER.z1) / 2, 1.0, COUNTER.z1 - COUNTER.z0 + 0.4, 0.3],
     [WALL_X + 0.35, SHELF.z0 + 1.5, 0.9, 3.4, 0.3],
-    [1.48, WALL_Z + 0.42, 0.7, 0.7, 0.35], [3.72, WALL_Z + 0.45, 0.6, 0.6, 0.35], [WALL_X + 0.45, 4.15, 0.6, 0.6, 0.35],
-    [WELL.x - 0.4, 2.9, 0.6, 0.6, 0.35], [-2.6, WALL_Z + 0.45, 0.55, 0.55, 0.35],
+    [1.48, WALL_Z + 0.42, 0.7, 0.7, 0.35], [WALL_X + 0.45, 4.15, 0.6, 0.6, 0.35],
+    [-2.6, WALL_Z + 0.45, 0.55, 0.55, 0.35],
   ];
   const blobAttr = blobGeo.getAttribute('aStr') as THREE.InstancedBufferAttribute;
   statics.forEach(([x, z, w, d, st], i) => { blobs.setMatrixAt(i, _m.makeScale(w, 1, d).setPosition(x, 0.031, z)); blobAttr.setX(i, st); });
@@ -1420,8 +1709,20 @@ export function buildRoom(): RoomBuild {
     setPx(px) { gMat.uniforms.uPx.value = px; },
     dispose() {
       group.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (m.geometry) m.geometry.dispose();
+        if (o instanceof THREE.Mesh) {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) {
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+              if ('map' in m && m.map) (m.map as THREE.Texture).dispose();
+            }
+          }
+        }
+      });
+      paintings.forEach((m) => {
+        const mat = m.material as THREE.MeshLambertMaterial;
+        mat.map?.dispose();
+        mat.dispose();
       });
       [shellMat, furnMat, propMat, gMat, hazeMat, blobMat, books.material as THREE.Material].forEach((m) => m.dispose());
       win.dispose();

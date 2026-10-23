@@ -1320,12 +1320,18 @@ export function createCrowd(room: RoomBuild): Crowd {
         const st: SlotStatus = !a.occ ? 'empty' : a.mode === 'seated' && a.goal === 'seat' ? 'focus' : a.occ.status === 'focus' ? 'break' : a.occ.status;
         a.seat.lamp.target = LAMP_LEVEL[st];
       }
-      // The door swings open for anyone close to it.
+      // The door swings open for anyone close to it or when opened manually.
       let near = false;
       const din = nav.node('din');
       for (const a of agents) if (a.char?.root.visible && a.mode === 'walk' && Math.hypot(a.pos.x - din.x, a.pos.y - din.y) < 2.0) near = true;
-      doorOpen += ((near ? 1 : 0) - doorOpen) * (1 - Math.exp(-(near ? 6 : 2.5) * dt));
-      door.rotation.y = 1.35 * doorOpen * doorOpen * (3 - 2 * doorOpen);
+      const targetOpen = near || door.userData.manualOpen ? 1 : 0;
+      doorOpen += (targetOpen - doorOpen) * (1 - Math.exp(-(targetOpen ? 6 : 2.5) * dt));
+      const eased = doorOpen * doorOpen * (3 - 2 * doorOpen);
+      door.rotation.y = 1.36 * eased;
+      if (door.userData.lever) {
+        const latchFactor = doorOpen > 0.005 && doorOpen < 0.22 ? Math.sin((doorOpen / 0.22) * Math.PI) : 0;
+        (door.userData.lever as THREE.Group).rotation.z = latchFactor * 0.42;
+      }
     },
     update(t, dt, camPos) {
       frame++;

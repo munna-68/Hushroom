@@ -28,8 +28,8 @@ export const WALL_H = 5.6;
 /** Far edges of the floor on the open sides. */
 export const FLOOR_X1 = 9;
 export const FLOOR_Z1 = 7.5;
-/** Stairwell opening at the near-right (x beyond, z beyond). */
-export const WELL = { x: 3.55, z: -0.6 };
+/** Stairwell opening at the near-right (x: [3.55..5.50], z: [-1.65..2.60]). */
+export const WELL = { x: 3.55, z: -0.6, x1: 5.50, z0: -1.65, z1: 2.60 };
 
 export const WINDOW = { z0: -0.85, z1: 2.55, y0: 1.08, y1: 4.0, cols: 4, rows: 4, mull: 0.06 };
 export const COUNTER = { top: 0.96, depth: 0.62, z0: -1.15, z1: 2.85 };

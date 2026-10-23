@@ -147,6 +147,28 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
   onReduced();
   reduced.addEventListener('change', onReduced);
 
+  // Interactive 3D door click: clicking the door directly in 3D toggles open / closed
+  const doorRaycaster = new THREE.Raycaster();
+  const doorPointer = new THREE.Vector2();
+  let pointerDownPos = { x: 0, y: 0 };
+  const onCanvasPointerDown = (e: PointerEvent) => {
+    pointerDownPos = { x: e.clientX, y: e.clientY };
+  };
+  const onCanvasPointerUp = (e: PointerEvent) => {
+    const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+    if (dist > 6) return; // Ignore drag / orbit gestures
+    const rect = renderer.domElement.getBoundingClientRect();
+    doorPointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    doorPointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    doorRaycaster.setFromCamera(doorPointer, camera);
+    const hits = doorRaycaster.intersectObjects(room.door.children, true);
+    if (hits.length > 0) {
+      room.door.userData.manualOpen = !room.door.userData.manualOpen;
+    }
+  };
+  renderer.domElement.addEventListener('pointerdown', onCanvasPointerDown);
+  renderer.domElement.addEventListener('pointerup', onCanvasPointerUp);
+
   const labels: HTMLDivElement[] = Array.from({ length: MAX_SLOTS }, () => {
     const d = document.createElement('div');
     d.className = 'seat-label';
@@ -493,6 +515,8 @@ export function createStudyScene(container: HTMLElement, opts: SceneOptions = {}
     resetView() { camRig.resetView(); },
     dispose() {
       stop();
+      renderer.domElement.removeEventListener('pointerdown', onCanvasPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onCanvasPointerUp);
       document.removeEventListener('visibilitychange', onVis);
       reduced.removeEventListener('change', onReduced);
       ro.disconnect();
