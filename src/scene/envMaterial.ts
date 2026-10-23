@@ -14,10 +14,12 @@
 import * as THREE from 'three';
 import { TABLE, TABLE_TOP, WALL_X, WALL_Z, WINDOW } from './hall';
 
-/** 8 seat lamps, the pendant, the window spill. */
-export const N_LAMPS = 10;
+/** 8 seat lamps, the pendant, the window spill, upper stairwell fill, lower landing sconce. */
+export const N_LAMPS = 12;
 export const PENDANT_LAMP = 8;
 export const WINDOW_LAMP = 9;
+export const STAIR_LAMP = 10;
+export const LOWER_LAMP = 11;
 
 /** Live values every patched material reads (shared uniform objects, set once per frame). */
 export const lightRig = {
@@ -73,7 +75,8 @@ float stWindowLight(vec3 p) {
   vec2 size = vec2((stWin.z - stWin.y) / stWinY.z, (stWinY.y - stWinY.x) / stWinY.w);
   vec2 cell = vec2(q.z - stWin.y, q.y - stWinY.x) / size;
   vec2 dl = abs(fract(cell + 0.5) - 0.5) * size;
-  float m = smoothstep(stMull - e, stMull + e, min(dl.x, dl.y));
+  float em = min(e * 0.55, 0.026);
+  float m = smoothstep(stMull * 0.68 - em, stMull * 0.68 + em, min(dl.x, dl.y));
   float occ = 1.0;
   if (p.y < ${TABLE_TOP.toFixed(3)} - 0.03 && s.y > 0.01) {
     float tt = (${TABLE_TOP.toFixed(3)} - p.y) / s.y;
@@ -84,7 +87,7 @@ float stWindowLight(vec3 p) {
   return inside * m * occ;
 }
 
-// Fake lamps: soft falloff, light mostly downward (shaded bulbs).
+// Fake lamps: soft falloff, light mostly downward (shaded bulbs); stairwell fill lamps are omnidirectional.
 vec3 stLampLight(vec3 p, vec3 n) {
   vec3 sum = vec3(0.0);
   for (int i = 0; i < ST_LAMPS; i++) {
@@ -97,7 +100,7 @@ vec3 stLampLight(vec3 p, vec3 n) {
     if (x <= 0.0) continue;
     vec3 l = d / max(dist, 1e-4);
     float ndl = clamp(dot(n, l) * 0.6 + 0.4, 0.0, 1.0);
-    float down = mix(0.3, 1.0, smoothstep(-0.3, 0.5, l.y));
+    float down = i >= 10 ? 0.92 : mix(0.3, 1.0, smoothstep(-0.3, 0.5, l.y));
     sum += c * (x * x) * ndl * down;
   }
   return sum;
@@ -179,20 +182,26 @@ export function envMaterial(opts: { sway?: boolean; emit?: boolean } = {}): THRE
         uniform float stLampLevel[ST_LAMPS];
         uniform float stEmitGain;
         uniform float stAOk;
-        // Contact shading: corners, wall feet, under the table.
+        // Contact shading: corners, wall feet, under the table (never darkens stairwell below floor).
         float stAO(vec3 p, vec3 n) {
           float a = 1.0;
           float dx = p.x - (${WALL_X.toFixed(2)}), dz = p.z - (${WALL_Z.toFixed(2)});
-          a *= mix(0.72, 1.0, smoothstep(0.0, 0.9, min(dx, dz)));
-          if (n.y < 0.5) a *= mix(0.62, 1.0, smoothstep(0.0, 0.45, p.y));
+          a *= mix(0.76, 1.0, smoothstep(0.0, 0.9, min(dx, dz)));
+          if (n.y < 0.5) {
+            if (p.y >= -0.05) {
+              a *= mix(0.68, 1.0, smoothstep(0.0, 0.45, p.y));
+            } else {
+              a *= mix(0.88, 1.0, smoothstep(-2.22, -1.75, p.y));
+            }
+          }
           float c = min(dx, 4.0) + min(dz, 4.0);
-          a *= mix(0.75, 1.0, smoothstep(0.0, 1.6, c));
-          if (p.y < ${(TABLE_TOP - 0.05).toFixed(2)}) {
+          a *= mix(0.78, 1.0, smoothstep(0.0, 1.6, c));
+          if (p.y > -0.05 && p.y < ${(TABLE_TOP - 0.05).toFixed(2)}) {
             float ux = smoothstep(${(TABLE.len / 2 + 0.35).toFixed(2)}, ${(TABLE.len / 2 - 0.25).toFixed(2)}, abs(p.x));
             float uz = smoothstep(${(TABLE.depth / 2 + 0.3).toFixed(2)}, ${(TABLE.depth / 2 - 0.2).toFixed(2)}, abs(p.z));
             a *= 1.0 - 0.42 * ux * uz;
           }
-          a *= mix(0.7, 1.0, clamp(smoothstep(-0.8, -0.2, n.y) + step(0.0, n.y), 0.0, 1.0));
+          a *= mix(0.75, 1.0, clamp(smoothstep(-0.8, -0.2, n.y) + step(0.0, n.y), 0.0, 1.0));
           return mix(1.0, a, stAOk);
         }
         void main() {`)

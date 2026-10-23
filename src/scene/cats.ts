@@ -180,9 +180,9 @@ export function createCats(): Cats {
   const black = new Cat(blackGeo);
   group.add(tabby.root, black.root);
 
-  // Tabby on the sofa: curled on the middle cushion, walks along the seat to visitors.
-  const SEAT_Y = SOFA.seat + 0.005, SEAT_Z = SOFA.z + 0.06;
-  const tb = { x: SOFA.x + 0.15, yaw: -1.2, goalX: SOFA.x + 0.15, state: 'curl' as 'curl' | 'wake' | 'walk' | 'nuzzle' | 'stretch', st: 0, nextStretch: 40, twitch: 0, gait: 0 };
+  // Tabby on the sofa: curled on the upper cushion along the left-wall sofa, walks along the seat to visitors.
+  const SEAT_Y = SOFA.seat + 0.005, SEAT_X = SOFA.x + 0.08;
+  const tb = { z: SOFA.z - 0.36, yaw: 0.35, goalZ: SOFA.z - 0.36, state: 'curl' as 'curl' | 'wake' | 'walk' | 'nuzzle' | 'stretch', st: 0, nextStretch: 40, twitch: 0, gait: 0 };
   // Black cat: sits by the shelves, strolls between a few spots, watches people.
   const SPOTS: [number, number, number][] = [[-4.05, -4.72, 0.75], [-2.95, -4.65, 0.4], [-4.0, -1.55, 1.3]];
   const bc = { x: SPOTS[0][0], z: SPOTS[0][1], yaw: SPOTS[0][2], spot: 0, state: 'sit' as 'sit' | 'rise' | 'walk' | 'settle', st: 0, next: 50, head: 0, blink: 3, gait: 0 };
@@ -193,15 +193,14 @@ export function createCats(): Cats {
     group,
     update(t, dt, movers, guests) {
       // ---- tabby ----
-      // Visitors: snuggle up beside one, between two, or at the feet of someone lying down.
+      // Visitors: snuggle up beside one on the left-wall sofa cushion.
       const guest = guests.length ? guests[0] : null;
-      if (guests.length >= 2) tb.goalX = SOFA.x;
+      if (guests.length >= 2) tb.goalZ = SOFA.z - 0.36;
       else if (guest) {
-        const lying = Math.abs(guest.x - (SOFA.x - SOFA.len / 2 + 1.12)) < 0.1;
-        tb.goalX = lying ? SOFA.x + SOFA.len / 2 - 0.42 : guest.x + (guest.x < SOFA.x ? 0.45 : -0.45);
+        tb.goalZ = SOFA.z - 0.36;
       }
       tb.st += dt;
-      const needMove = Math.abs(tb.goalX - tb.x) > 0.08;
+      const needMove = Math.abs(tb.goalZ - tb.z) > 0.08;
       switch (tb.state) {
         case 'curl':
           if (needMove && guest) { tb.state = 'wake'; tb.st = 0; }
@@ -209,11 +208,11 @@ export function createCats(): Cats {
           break;
         case 'wake': if (tb.st > 1.2) { tb.state = needMove ? 'walk' : 'nuzzle'; tb.st = 0; } break;
         case 'walk': {
-          const dir = Math.sign(tb.goalX - tb.x);
-          const want = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+          const dir = Math.sign(tb.goalZ - tb.z);
+          const want = dir > 0 ? 0 : Math.PI;
           tb.yaw += wrap(want - tb.yaw) * Math.min(1, dt * 5);
           const v = Math.abs(wrap(want - tb.yaw)) < 0.4 ? 0.35 : 0.05;
-          tb.x += dir * Math.min(Math.abs(tb.goalX - tb.x), v * dt);
+          tb.z += dir * Math.min(Math.abs(tb.goalZ - tb.z), v * dt);
           tb.gait += v * dt / 0.18 * Math.PI;
           if (!needMove) { tb.state = guest ? 'nuzzle' : 'curl'; tb.st = 0; }
           break;
@@ -241,7 +240,7 @@ export function createCats(): Cats {
         lerpP(pT, pT, tmpB, Math.min(1, dt * (tb.state === 'walk' ? 12 : 4)));
       }
       applyCat(tabby, pT);
-      tabby.root.position.set(tb.x, SEAT_Y, SEAT_Z);
+      tabby.root.position.set(SEAT_X, SEAT_Y, tb.z);
       tabby.root.rotation.y = tb.yaw;
 
       // ---- black cat ----

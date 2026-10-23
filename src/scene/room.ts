@@ -5,7 +5,7 @@
 // furniture); books, chairs and mugs are instanced; seat kits are per seat.
 import * as THREE from 'three';
 import { EnvBuilder } from './envGeo';
-import { envMaterial, lightRig, N_LAMPS, PENDANT_LAMP, WINDOW_LAMP, stUniforms } from './envMaterial';
+import { envMaterial, lightRig, LOWER_LAMP, N_LAMPS, PENDANT_LAMP, STAIR_LAMP, WINDOW_LAMP, stUniforms } from './envMaterial';
 import { buildWindowView, type WindowView } from './windowView';
 import { backpackGeo, buildKit, buildLamp, chairGeo, mugGeo, type LampInfo } from './props';
 import { frame } from './paintings';
@@ -15,7 +15,7 @@ import type { FocusAct, PageHook } from './character';
 import type { Atmo } from './atmosphere';
 import type { TierSettings } from './quality';
 import {
-  CHAIR_IN, COFFEE, COUNTER, DOOR, FLOOR_Z1, KITS, LAMP_AT, LAMP_FADE, LAMP_TINT, MAX_SLOTS, PENDANT, SHELF,
+  CHAIR_IN, COFFEE, COUNTER, DOOR, FLOOR_X1, FLOOR_Z1, KITS, LAMP_AT, LAMP_FADE, LAMP_TINT, MAX_SLOTS, PENDANT, SHELF,
   SOFA, STOOLS, TABLE, TABLE_TOP, WALL_H, WALL_X, WALL_Z, WELL, WINDOW, seatPose,
 } from './hall';
 
@@ -778,50 +778,58 @@ function plant(b: EnvBuilder, x: number, z: number, o: PlantOpts) {
 function buildShell(): THREE.BufferGeometry {
   const b = new EnvBuilder();
   const r = rng(42);
-  const WELL_X0 = WELL.x; // 3.55
-  const WELL_X1 = WELL.x1; // 5.50
+  const WELL_X0 = WELL.x; // 3.68
+  const WELL_X1 = WELL.x1; // 5.63
   const WELL_Z0 = WELL.z0; // -1.65
   const WELL_Z1 = WELL.z1; // 2.60
   const stairwellWidth = WELL_X1 - WELL_X0; // 1.95m
   const L_stair = WELL_Z1 - WELL_Z0; // 4.25m
   const Z_stair = (WELL_Z0 + WELL_Z1) / 2; // 0.475m
 
-  // Floor: dark underlay showing through the plank seams, then staggered oak planks.
-  b.add(new THREE.BoxGeometry(WELL_X1 - WALL_X + 0.6, 0.04, WELL_Z0 - WALL_Z + 0.3), '#3a2216', { p: [(WALL_X + WELL_X1) / 2, -0.035, (WALL_Z + WELL_Z0) / 2] });
-  b.add(new THREE.BoxGeometry(WELL_X0 - WALL_X + 0.3, 0.04, WELL_Z1 - WELL_Z0 + 0.01), '#3a2216', { p: [(WALL_X + WELL_X0) / 2, -0.035, (WELL_Z0 + WELL_Z1) / 2] });
-  b.add(new THREE.BoxGeometry(WELL_X1 - WALL_X + 0.6, 0.04, FLOOR_Z1 - WELL_Z1 + 0.3), '#3a2216', { p: [(WALL_X + WELL_X1) / 2, -0.035, (WELL_Z1 + FLOOR_Z1) / 2] });
+  // Floor: warm wood underlay showing through the plank seams, then staggered oak planks across the full room & right wing.
+  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + 0.6, 0.04, WELL_Z0 - WALL_Z + 0.3), '#5a3622', { p: [(WALL_X + FLOOR_X1) / 2, -0.035, (WALL_Z + WELL_Z0) / 2] });
+  b.add(new THREE.BoxGeometry(WELL_X0 - WALL_X + 0.3, 0.04, WELL_Z1 - WELL_Z0 + 0.01), '#5a3622', { p: [(WALL_X + WELL_X0) / 2, -0.035, (WELL_Z0 + WELL_Z1) / 2] });
+  b.add(new THREE.BoxGeometry(FLOOR_X1 - WELL_X1 + 0.3, 0.04, WELL_Z1 - WELL_Z0 + 0.01), '#5a3622', { p: [(WELL_X1 + FLOOR_X1) / 2, -0.035, (WELL_Z0 + WELL_Z1) / 2] });
+  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + 0.6, 0.04, FLOOR_Z1 - WELL_Z1 + 0.3), '#5a3622', { p: [(WALL_X + FLOOR_X1) / 2, -0.035, (WELL_Z1 + FLOOR_Z1) / 2] });
   const PW = 0.34;
   for (let z = WALL_Z; z < FLOOR_Z1 - 0.01; z += PW) {
     const zc = z + PW / 2;
-    const xEnd = (zc >= WELL_Z0 && zc <= WELL_Z1) ? WELL_X0 : WELL_X1;
-    let x = WALL_X - r() * 1.6;
-    while (x < xEnd) {
-      const len = 1.5 + r() * 2.2;
-      const x0 = Math.max(WALL_X, x), x1 = Math.min(xEnd, x + len);
-      if (x1 - x0 > 0.05) {
-        const k = 0.86 + r() * 0.2;
-        const c = new THREE.Color(r() < 0.25 ? '#b56d3b' : '#bd7a44').multiplyScalar(k);
-        b.add(new THREE.BoxGeometry(x1 - x0 - 0.012, 0.03, PW - 0.012), '#' + c.getHexString(), { p: [(x0 + x1) / 2, -0.015, zc] });
+    const inWellZ = zc >= WELL_Z0 && zc <= WELL_Z1;
+    const spans: [number, number][] = inWellZ ? [[WALL_X, WELL_X0], [WELL_X1, FLOOR_X1]] : [[WALL_X, FLOOR_X1]];
+    for (const [spanX0, spanX1] of spans) {
+      let x = spanX0 - r() * 1.6;
+      while (x < spanX1) {
+        const len = 1.5 + r() * 2.2;
+        const x0 = Math.max(spanX0, x), x1 = Math.min(spanX1, x + len);
+        if (x1 - x0 > 0.05) {
+          const k = 0.88 + r() * 0.18;
+          const c = new THREE.Color(r() < 0.25 ? '#b56d3b' : '#bd7a44').multiplyScalar(k);
+          b.add(new THREE.BoxGeometry(x1 - x0 - 0.012, 0.03, PW - 0.012), '#' + c.getHexString(), { p: [(x0 + x1) / 2, -0.015, zc] });
+        }
+        x += len;
       }
-      x += len;
     }
   }
 
   // Raised honey-oak border nosing around stairwell rim (sits slightly proud at Y = 0.005 to cover all cut plank edges cleanly)
   // Front rim under front balustrade
-  b.add(roundedBox(stairwellWidth + 0.12, 0.036, 0.22, 0.008, 1), '#b8743c', {
+  b.add(roundedBox(stairwellWidth + 0.24, 0.036, 0.22, 0.008, 1), '#b8743c', {
     p: [(WELL_X0 + WELL_X1) / 2, -0.012, WELL_Z1 + 0.09],
   });
   // Left rim under left balustrade
   b.add(roundedBox(0.22, 0.036, L_stair + 0.22, 0.008, 1), '#b8743c', {
     p: [WELL_X0 - 0.09, -0.012, Z_stair],
   });
+  // Right rim along right stairwell edge
+  b.add(roundedBox(0.22, 0.036, L_stair + 0.22, 0.008, 1), '#b8743c', {
+    p: [WELL_X1 + 0.09, -0.012, Z_stair],
+  });
   // Rear rim under entry threshold
-  b.add(roundedBox(stairwellWidth + 0.12, 0.036, 0.22, 0.008, 1), '#b8743c', {
+  b.add(roundedBox(stairwellWidth + 0.24, 0.036, 0.22, 0.008, 1), '#b8743c', {
     p: [(WELL_X0 + WELL_X1) / 2, -0.012, WELL_Z0 - 0.09],
   });
-  // Rug under the table: teal with a thin gold double border.
-  const RW = 7.4, RD = 4.3;
+  // Rug under the table: teal with a thin gold double border, sized with clear floor margin before the stair railing.
+  const RW = 6.16, RD = 3.76;
   b.add(roundedBox(RW, 0.024, RD, 0.01, 1), '#244f4c', { p: [0, 0.012, 0] });
   b.add(roundedBox(RW - 0.06, 0.026, RD - 0.06, 0.01, 1), '#2a5c58', { p: [0, 0.013, 0] });
   for (const inset of [0.2, 0.29]) {
@@ -831,10 +839,18 @@ function buildShell(): THREE.BufferGeometry {
     b.add(new THREE.BoxGeometry(t, 0.004, d), '#c9a457', { p: [w / 2, 0.027, 0] });
     b.add(new THREE.BoxGeometry(t, 0.004, d), '#c9a457', { p: [-w / 2, 0.027, 0] });
   }
-  // Round rug under the coffee table: teal ring around cream.
-  b.add(cyl(1.22, 1.22, 0.02, 48), '#2f6d6a', { p: [COFFEE.x, 0.01, COFFEE.z - 0.45] });
-  b.add(cyl(1.1, 1.1, 0.024, 48), '#e6d6ba', { p: [COFFEE.x, 0.012, COFFEE.z - 0.45] });
-  b.add(new THREE.TorusGeometry(0.98, 0.012, 3, 48), '#cdb994', { p: [COFFEE.x, 0.025, COFFEE.z - 0.45], r: [Math.PI / 2, 0, 0] });
+  // Round rug under the coffee table: teal ring around cream, centered in front of the L-shaped sofa.
+  const rugX = COFFEE.x - 0.04, rugZ = COFFEE.z - 0.04;
+  b.add(cyl(1.22, 1.22, 0.02, 48), '#2f6d6a', { p: [rugX, 0.01, rugZ] });
+  b.add(cyl(1.1, 1.1, 0.024, 48), '#e6d6ba', { p: [rugX, 0.012, rugZ] });
+  b.add(new THREE.TorusGeometry(0.98, 0.012, 3, 48), '#cdb994', { p: [rugX, 0.025, rugZ], r: [Math.PI / 2, 0, 0] });
+
+  // Warm woven runner rug in the right-hand reading alcove (along the back wall past the second column)
+  const grX = 7.55, grZ = -3.45, grW = 2.6, grD = 1.35;
+  b.add(roundedBox(grW, 0.018, grD, 0.008, 1), '#244f4c', { p: [grX, 0.009, grZ] });
+  b.add(roundedBox(grW - 0.14, 0.02, grD - 0.14, 0.008, 1), '#2a5c58', { p: [grX, 0.011, grZ] });
+  b.add(roundedBox(grW - 0.28, 0.022, grD - 0.28, 0.006, 1), '#c9a457', { p: [grX, 0.013, grZ] });
+  b.add(roundedBox(grW - 0.36, 0.024, grD - 0.36, 0.006, 1), '#ead9bc', { p: [grX, 0.015, grZ] });
 
   const T = 0.3;
   // Left wall (window wall): cream plaster with the window cut out. Shape x = −world z.
@@ -844,74 +860,137 @@ function buildShell(): THREE.BufferGeometry {
   hole.moveTo(-WINDOW.z1, WINDOW.y0); hole.lineTo(-WINDOW.z0, WINDOW.y0); hole.lineTo(-WINDOW.z0, WINDOW.y1); hole.lineTo(-WINDOW.z1, WINDOW.y1); hole.closePath();
   lw.holes.push(hole);
   b.add(new THREE.ExtrudeGeometry(lw, { depth: T, bevelEnabled: false }), CREAM_WALL, { p: [WALL_X - T, 0, 0], r: [0, Math.PI / 2, 0] });
-  // Back wall (door wall): deep teal, door opening.
+  // Back wall (door wall): deep teal, door opening, extending across the full right wing.
   const dx0 = DOOR.x - DOOR.w / 2, dx1 = DOOR.x + DOOR.w / 2;
   const bw = new THREE.Shape();
-  bw.moveTo(WALL_X - T, 0); bw.lineTo(dx0, 0); bw.lineTo(dx0, DOOR.h); bw.lineTo(dx1, DOOR.h); bw.lineTo(dx1, 0); bw.lineTo(WELL_X1 + T, 0); bw.lineTo(WELL_X1 + T, WALL_H); bw.lineTo(WALL_X - T, WALL_H); bw.closePath();
+  bw.moveTo(WALL_X - T, 0); bw.lineTo(dx0, 0); bw.lineTo(dx0, DOOR.h); bw.lineTo(dx1, DOOR.h); bw.lineTo(dx1, 0); bw.lineTo(FLOOR_X1 + T, 0); bw.lineTo(FLOOR_X1 + T, WALL_H); bw.lineTo(WALL_X - T, WALL_H); bw.closePath();
   b.add(new THREE.ExtrudeGeometry(bw, { depth: T, bevelEnabled: false }), TEAL_WALL, { p: [0, 0, WALL_Z - T] });
-  // Wall tops read as a cut section (along left wall and back wall only).
-  b.add(new THREE.BoxGeometry(T + 0.02, 0.03, FLOOR_Z1 - WALL_Z + T), '#3b2a24', { p: [WALL_X - T / 2, WALL_H + 0.015, (FLOOR_Z1 + WALL_Z - T) / 2] });
-  b.add(new THREE.BoxGeometry(WELL_X1 - WALL_X + 2 * T, 0.03, T + 0.02), '#3b2a24', { p: [(WELL_X1 + WALL_X) / 2, WALL_H + 0.015, WALL_Z - T / 2] });
-  // Crown moulding along left wall and back wall.
-  b.add(roundedBox(0.12, 0.14, FLOOR_Z1 - WALL_Z, 0.03, 1), '#e2c8a0', { p: [WALL_X + 0.05, WALL_H - 0.3, (FLOOR_Z1 + WALL_Z) / 2] });
-  b.add(roundedBox(WELL_X1 - WALL_X + T, 0.14, 0.12, 0.03, 1), '#24504f', { p: [(WELL_X1 + WALL_X + T) / 2, WALL_H - 0.3, WALL_Z + 0.05] });
+  const PX2 = 5.56;
+  // Right-hand enclosing wall at x = FLOOR_X1 (warm cream plaster upper wall + full honey-oak wainscoting below)
+  b.add(new THREE.BoxGeometry(T, WALL_H, FLOOR_Z1 - WALL_Z + T), CREAM_WALL, {
+    p: [FLOOR_X1 + T / 2, WALL_H / 2, (FLOOR_Z1 + WALL_Z - T) / 2],
+  });
+  // Wall tops read as a cut section (along left wall, back wall, and right wall).
+  b.add(new THREE.BoxGeometry(T + 0.02, 0.03, FLOOR_Z1 - WALL_Z + T), '#6e4730', { p: [WALL_X - T / 2, WALL_H + 0.015, (FLOOR_Z1 + WALL_Z - T) / 2] });
+  b.add(new THREE.BoxGeometry(FLOOR_X1 - WALL_X + 2 * T, 0.03, T + 0.02), '#6e4730', { p: [(FLOOR_X1 + WALL_X) / 2, WALL_H + 0.015, WALL_Z - T / 2] });
+  b.add(new THREE.BoxGeometry(T + 0.02, 0.03, FLOOR_Z1 - WALL_Z + T), '#6e4730', { p: [FLOOR_X1 + T / 2, WALL_H + 0.015, (FLOOR_Z1 + WALL_Z - T) / 2] });
+  // Crown moulding along left wall, back wall, and right wall (at classic cornice height y = 5.30 and upper frieze cap).
+  for (const cy of [5.30, WALL_H - 0.16]) {
+    b.add(roundedBox(0.12, 0.14, FLOOR_Z1 - WALL_Z, 0.03, 1), '#e2c8a0', { p: [WALL_X + 0.05, cy, (FLOOR_Z1 + WALL_Z) / 2] });
+    b.add(roundedBox(FLOOR_X1 - WALL_X + T, 0.14, 0.12, 0.03, 1), '#24504f', { p: [(FLOOR_X1 + WALL_X + T) / 2, cy, WALL_Z + 0.05] });
+    b.add(roundedBox(0.12, 0.14, FLOOR_Z1 - WALL_Z, 0.03, 1), '#e2c8a0', { p: [FLOOR_X1 - 0.05, cy, (FLOOR_Z1 + WALL_Z) / 2] });
+  }
 
-  // Back wall wainscot: wood panels, top rail, baseboard (gap at the door).
+  // Back wall wainscot: wood panels, top rail, baseboard (gaps at the door and pilasters).
   const WH = 1.28;
-  const runs: [number, number][] = [[WALL_X, dx0 - 0.13], [dx1 + 0.13, WELL_X1]];
+  const runs: [number, number][] = [[WALL_X, dx0 - 0.13], [dx1 + 0.13, PX2 - 0.2], [PX2 + 0.2, FLOOR_X1]];
   for (const [a, c] of runs) {
     const w = c - a;
-    b.add(new THREE.BoxGeometry(w, WH, 0.04), '#8c532e', { p: [(a + c) / 2, WH / 2, WALL_Z + 0.02] });
-    b.add(roundedBox(w, 0.06, 0.09, 0.02, 1), '#a8673a', { p: [(a + c) / 2, WH, WALL_Z + 0.045] });
-    b.add(roundedBox(w, 0.16, 0.06, 0.015, 1), '#6e4128', { p: [(a + c) / 2, 0.08, WALL_Z + 0.05] });
+    b.add(new THREE.BoxGeometry(w, WH, 0.04), '#9e5f34', { p: [(a + c) / 2, WH / 2, WALL_Z + 0.02] });
+    b.add(roundedBox(w, 0.06, 0.09, 0.02, 1), '#b87240', { p: [(a + c) / 2, WH, WALL_Z + 0.045] });
+    b.add(roundedBox(w, 0.16, 0.06, 0.015, 1), '#7a482c', { p: [(a + c) / 2, 0.08, WALL_Z + 0.05] });
     const n = Math.max(1, Math.round(w / 1.05));
     for (let k = 0; k < n; k++) {
       const pw = w / n;
-      b.add(roundedBox(pw - 0.2, WH - 0.42, 0.03, 0.02, 1), '#965a33', { p: [a + pw * (k + 0.5), 0.2 + (WH - 0.36) / 2, WALL_Z + 0.05] });
+      b.add(roundedBox(pw - 0.2, WH - 0.42, 0.03, 0.02, 1), '#ab6839', { p: [a + pw * (k + 0.5), 0.2 + (WH - 0.36) / 2, WALL_Z + 0.05] });
     }
+  }
+  // Right wall wainscot (along x = FLOOR_X1 from WALL_Z to FLOOR_Z1) matching the back wall wood paneling
+  const rwLen = FLOOR_Z1 - WALL_Z;
+  const rwMidZ = (FLOOR_Z1 + WALL_Z) / 2;
+  b.add(new THREE.BoxGeometry(0.04, WH, rwLen), '#9e5f34', { p: [FLOOR_X1 - 0.02, WH / 2, rwMidZ] });
+  b.add(roundedBox(0.09, 0.06, rwLen, 0.02, 1), '#b87240', { p: [FLOOR_X1 - 0.045, WH, rwMidZ] });
+  b.add(roundedBox(0.06, 0.16, rwLen, 0.015, 1), '#7a482c', { p: [FLOOR_X1 - 0.05, 0.08, rwMidZ] });
+  const rwN = Math.max(1, Math.round(rwLen / 1.05));
+  for (let k = 0; k < rwN; k++) {
+    const pzLen = rwLen / rwN;
+    b.add(roundedBox(0.03, WH - 0.42, pzLen - 0.2, 0.02, 1), '#ab6839', {
+      p: [FLOOR_X1 - 0.05, 0.2 + (WH - 0.36) / 2, WALL_Z + pzLen * (k + 0.5)],
+    });
   }
   // Left wall: teal panelled wainscot beyond the counter, cream pier, baseboard.
   b.add(new THREE.BoxGeometry(0.04, 0.98, FLOOR_Z1 - COUNTER.z1), TEAL_PANEL, { p: [WALL_X + 0.02, 0.49, (FLOOR_Z1 + COUNTER.z1) / 2] });
   b.add(roundedBox(0.09, 0.06, FLOOR_Z1 - COUNTER.z1, 0.02, 1), OAK, { p: [WALL_X + 0.045, 0.98, (FLOOR_Z1 + COUNTER.z1) / 2] });
-  b.add(roundedBox(0.06, 0.14, FLOOR_Z1 - WALL_Z, 0.015, 1), '#6e4128', { p: [WALL_X + 0.03, 0.07, (FLOOR_Z1 + WALL_Z) / 2] });
+  b.add(roundedBox(0.06, 0.14, FLOOR_Z1 - WALL_Z, 0.015, 1), '#7a482c', { p: [WALL_X + 0.03, 0.07, (FLOOR_Z1 + WALL_Z) / 2] });
 
-  // Pilaster on the back wall left of the door.
-  const PX = 1.0;
-  b.add(roundedBox(0.36, WALL_H - 0.4, 0.14, 0.03, 1), '#e7d3b0', { p: [PX, (WALL_H - 0.4) / 2, WALL_Z + 0.07] });
-  b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, 0.06, WALL_Z + 0.1] });
-  b.add(roundedBox(0.44, 0.1, 0.2, 0.03, 1), '#e2cba4', { p: [PX, WH + 0.04, WALL_Z + 0.1] });
+  // Twin cream pilasters on the back wall (left of the door at PX = 1.0, and right of the door at PX2 = 5.56).
+  for (const PX of [1.0, PX2]) {
+    b.add(roundedBox(0.36, WALL_H - 0.16, 0.14, 0.03, 1), '#e7d3b0', { p: [PX, (WALL_H - 0.16) / 2, WALL_Z + 0.07] });
+    b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, 0.06, WALL_Z + 0.1] });
+    b.add(roundedBox(0.44, 0.1, 0.2, 0.03, 1), '#e2cba4', { p: [PX, WH + 0.04, WALL_Z + 0.1] });
+    b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, 5.26, WALL_Z + 0.1] });
+    b.add(roundedBox(0.44, 0.12, 0.2, 0.03, 1), '#e2cba4', { p: [PX, WALL_H - 0.18, WALL_Z + 0.1] });
+  }
 
-  // Structural stairwell enclosure walls & lower library landing floor
-  // Left pit wall (below upper floor only, Y: -2.60 to -0.05)
-  b.add(new THREE.BoxGeometry(0.14, 2.55, L_stair), '#172b2b', {
-    p: [WELL_X0 - 0.07, -1.325, Z_stair],
-  });
-  // Front pit wall under front balustrade (below floor only, Y: -2.60 to -0.05)
-  b.add(new THREE.BoxGeometry(stairwellWidth, 2.55, 0.14), '#172b2b', {
-    p: [(WELL_X0 + WELL_X1) / 2, -1.325, WELL_Z1 + 0.07],
-  });
-  // Back pit wall under entry threshold (below floor only, Y: -2.40 to -0.05)
-  b.add(new THREE.BoxGeometry(stairwellWidth, 2.35, 0.14), '#172b2b', {
-    p: [(WELL_X0 + WELL_X1) / 2, -1.225, WELL_Z0 - 0.07],
-  });
-  // Right pit wall (below upper floor only, Y: -2.60 to -0.05; no walls above floor level)
-  b.add(new THREE.BoxGeometry(0.14, 2.55, L_stair), '#172b2b', {
-    p: [WELL_X1 + 0.07, -1.325, Z_stair],
-  });
+  // Structural stairwell enclosure walls & lower library landing floor (warm cream plaster + honey-oak wainscoting, zero dark voids)
+  const wellWallCream = '#edd9b8';
+  const wellWainscot = '#b5723c';
+  const wellPanel = '#c68148';
+  const wellRail = '#cf8c52';
+  const wellBase = '#8c532e';
 
-  // Lower library landing floor at Y = -2.22m
-  b.add(new THREE.BoxGeometry(stairwellWidth + 0.4, 0.16, 1.45), '#c88750', {
-    p: [(WELL_X0 + WELL_X1) / 2, -2.22 - 0.08, WELL_Z1 - 0.65],
+  // Left stairwell wall (below upper floor, Y: -2.25 to -0.05)
+  b.add(new THREE.BoxGeometry(0.14, 1.32, L_stair + 0.12), wellWallCream, { p: [WELL_X0 - 0.07, -0.71, Z_stair] });
+  b.add(new THREE.BoxGeometry(0.15, 0.92, L_stair + 0.12), wellWainscot, { p: [WELL_X0 - 0.065, -1.80, Z_stair] });
+  b.add(new THREE.BoxGeometry(0.17, 0.055, L_stair + 0.08), wellRail, { p: [WELL_X0 - 0.05, -1.34, Z_stair] });
+  b.add(new THREE.BoxGeometry(0.17, 0.12, L_stair + 0.08), wellBase, { p: [WELL_X0 - 0.05, -2.16, Z_stair] });
+  for (let pz = WELL_Z0 + 0.45; pz < WELL_Z1 - 0.25; pz += 0.82) {
+    b.add(roundedBox(0.03, 0.56, 0.64, 0.01, 1), wellPanel, { p: [WELL_X0 + 0.015, -1.75, pz] });
+  }
+
+  // Front stairwell wall under front balustrade (Y: -2.25 to -0.05)
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.24, 1.32, 0.14), wellWallCream, { p: [(WELL_X0 + WELL_X1) / 2, -0.71, WELL_Z1 + 0.07] });
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.24, 0.92, 0.15), wellWainscot, { p: [(WELL_X0 + WELL_X1) / 2, -1.80, WELL_Z1 + 0.065] });
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.2, 0.055, 0.17), wellRail, { p: [(WELL_X0 + WELL_X1) / 2, -1.34, WELL_Z1 + 0.05] });
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.2, 0.12, 0.17), wellBase, { p: [(WELL_X0 + WELL_X1) / 2, -2.16, WELL_Z1 + 0.05] });
+
+  // Back stairwell wall under entry threshold (Y: -2.25 to -0.05)
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.24, 1.32, 0.14), wellWallCream, { p: [(WELL_X0 + WELL_X1) / 2, -0.71, WELL_Z0 - 0.07] });
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.24, 0.92, 0.15), wellWainscot, { p: [(WELL_X0 + WELL_X1) / 2, -1.80, WELL_Z0 - 0.065] });
+  b.add(new THREE.BoxGeometry(stairwellWidth + 0.2, 0.055, 0.17), wellRail, { p: [(WELL_X0 + WELL_X1) / 2, -1.34, WELL_Z0 - 0.05] });
+
+  // Right stairwell wall (below upper floor, Y: -2.25 to -0.05)
+  b.add(new THREE.BoxGeometry(0.14, 1.32, L_stair + 0.12), wellWallCream, { p: [WELL_X1 + 0.07, -0.71, Z_stair] });
+  b.add(new THREE.BoxGeometry(0.15, 0.92, L_stair + 0.12), wellWainscot, { p: [WELL_X1 + 0.065, -1.80, Z_stair] });
+  b.add(new THREE.BoxGeometry(0.17, 0.055, L_stair + 0.08), wellRail, { p: [WELL_X1 + 0.05, -1.34, Z_stair] });
+  b.add(new THREE.BoxGeometry(0.17, 0.12, L_stair + 0.08), wellBase, { p: [WELL_X1 + 0.05, -2.16, Z_stair] });
+  for (let pz = WELL_Z0 + 0.45; pz < WELL_Z1 - 0.25; pz += 0.82) {
+    b.add(roundedBox(0.03, 0.56, 0.64, 0.01, 1), wellPanel, { p: [WELL_X1 - 0.015, -1.75, pz] });
+  }
+
+  // Complete lower library landing floor at Y = -2.22m spanning the entire stairwell (no void under the stairs)
+  const lowerFloorW = stairwellWidth + 0.45;
+  const lowerFloorD = L_stair + 0.55;
+  b.add(new THREE.BoxGeometry(lowerFloorW, 0.14, lowerFloorD), '#a66838', {
+    p: [(WELL_X0 + WELL_X1) / 2, -2.22 - 0.07, Z_stair],
   });
+  // Staggered warm honey-oak planks on the lower landing floor
+  for (let lz = WELL_Z0 - 0.15; lz < WELL_Z1 + 0.12; lz += 0.28) {
+    const lzc = lz + 0.14;
+    for (let lx = WELL_X0 - 0.05; lx < WELL_X1 + 0.02; lx += 0.95) {
+      const lx0 = Math.max(WELL_X0 - 0.05, lx);
+      const lx1 = Math.min(WELL_X1 + 0.05, lx + 0.93);
+      const col = ((Math.round(lz * 10 + lx * 5) % 2) === 0) ? '#c9884e' : '#bf7c43';
+      b.add(new THREE.BoxGeometry(lx1 - lx0 - 0.01, 0.024, 0.268), col, {
+        p: [(lx0 + lx1) / 2, -2.215, lzc],
+      });
+    }
+  }
+  // Cozy lower landing rug at the foot of the stairs
+  const lrX = (WELL_X0 + WELL_X1) / 2, lrZ = WELL_Z1 - 0.68;
+  b.add(roundedBox(1.52, 0.018, 1.05, 0.008, 1), '#2a5c58', { p: [lrX, -2.202, lrZ] });
+  b.add(roundedBox(1.36, 0.02, 0.89, 0.008, 1), '#efe0c4', { p: [lrX, -2.20, lrZ] });
+  b.add(roundedBox(1.22, 0.022, 0.75, 0.006, 1), '#c9a457', { p: [lrX, -2.198, lrZ] });
+  b.add(roundedBox(1.16, 0.024, 0.69, 0.006, 1), '#2f6d6a', { p: [lrX, -2.196, lrZ] });
 
   // Oak fascia trim board along the drop-off edges
-  b.add(new THREE.BoxGeometry(0.04, 0.22, L_stair), '#9c5f30', {
+  b.add(new THREE.BoxGeometry(0.04, 0.22, L_stair), '#b06d3a', {
     p: [WELL_X0 + 0.015, -0.11, Z_stair],
   });
-  b.add(new THREE.BoxGeometry(stairwellWidth, 0.22, 0.04), '#9c5f30', {
+  b.add(new THREE.BoxGeometry(stairwellWidth, 0.22, 0.04), '#b06d3a', {
     p: [(WELL_X0 + WELL_X1) / 2, -0.11, WELL_Z1 - 0.015],
   });
-  b.add(new THREE.BoxGeometry(0.04, 0.22, L_stair), '#9c5f30', {
+  b.add(new THREE.BoxGeometry(0.04, 0.22, L_stair), '#b06d3a', {
     p: [WELL_X1 - 0.015, -0.11, Z_stair],
   });
 
@@ -960,21 +1039,78 @@ function buildCounter(b: EnvBuilder) {
 
 function buildWindowFrame(b: EnvBuilder) {
   const { z0, z1, y0, y1, cols, rows } = WINDOW;
-  const x = WALL_X - 0.12;
+  const x = WALL_X - 0.13;
   const zc = (z0 + z1) / 2, yc = (y0 + y1) / 2;
+  const W = z1 - z0, H = y1 - y0;
   const F = '#c8884a';
-  // Casing on the room side.
-  b.add(roundedBox(0.06, 0.16, z1 - z0 + 0.32, 0.03, 1), F, { p: [WALL_X + 0.03, y1 + 0.08, zc] });
-  b.add(roundedBox(0.06, y1 - y0 + 0.16, 0.16, 0.03, 1), F, { p: [WALL_X + 0.03, yc + 0.04, z0 - 0.08] });
-  b.add(roundedBox(0.06, y1 - y0 + 0.16, 0.16, 0.03, 1), F, { p: [WALL_X + 0.03, yc + 0.04, z1 + 0.08] });
-  // Mullions in the glass plane.
-  for (let c = 1; c < cols; c++) b.add(roundedBox(0.09, y1 - y0, 0.1, 0.025, 1), F, { p: [x, yc, z0 + ((z1 - z0) * c) / cols] });
-  for (let rr = 1; rr < rows; rr++) b.add(roundedBox(0.09, 0.09, z1 - z0, 0.025, 1), F, { p: [x, y0 + ((y1 - y0) * rr) / rows, zc] });
-  // Inner frame lining the opening.
-  b.add(new THREE.BoxGeometry(0.1, 0.06, z1 - z0), F, { p: [x, y0 + 0.03, zc] });
-  b.add(new THREE.BoxGeometry(0.1, 0.06, z1 - z0), F, { p: [x, y1 - 0.03, zc] });
-  b.add(new THREE.BoxGeometry(0.1, y1 - y0, 0.06), F, { p: [x, yc, z0 + 0.03] });
-  b.add(new THREE.BoxGeometry(0.1, y1 - y0, 0.06), F, { p: [x, yc, z1 - 0.03] });
+  const F_DARK = '#9e622e';
+  const F_LIGHT = '#df9e5c';
+  const REVEAL = '#d6b68a';
+
+  // 1. Deep architectural wall reveal / jamb lining the entire wall thickness (x: WALL_X - 0.30 to WALL_X + 0.02)
+  const revDepth = 0.32;
+  const revX = WALL_X - 0.14;
+  // Left & right vertical reveals
+  b.add(new THREE.BoxGeometry(revDepth, H + 0.04, 0.045), REVEAL, { p: [revX, yc, z0 + 0.02] });
+  b.add(new THREE.BoxGeometry(revDepth, H + 0.04, 0.045), REVEAL, { p: [revX, yc, z1 - 0.02] });
+  // Top head reveal
+  b.add(new THREE.BoxGeometry(revDepth, 0.045, W + 0.04), REVEAL, { p: [revX, y1 - 0.02, zc] });
+  // Recessed wood jamb liners inside the reveal
+  b.add(roundedBox(0.24, H, 0.055, 0.012, 1), F, { p: [WALL_X - 0.1, yc, z0 + 0.028] });
+  b.add(roundedBox(0.24, H, 0.055, 0.012, 1), F, { p: [WALL_X - 0.1, yc, z1 - 0.028] });
+  b.add(roundedBox(0.24, 0.055, W, 0.012, 1), F, { p: [WALL_X - 0.1, y1 - 0.028, zc] });
+
+  // 2. Projecting bullnose oak inner window sill (stool) & molded apron underneath
+  const sillDepth = 0.42; // spans from x = WALL_X - 0.28 out into room at WALL_X + 0.14
+  b.add(roundedBox(sillDepth, 0.06, W + 0.42, 0.02, 2), F_LIGHT, {
+    p: [WALL_X - 0.07, y0 + 0.02, zc],
+  });
+  // Supportive molded apron trim below the sill on the room face
+  b.add(roundedBox(0.065, 0.09, W + 0.32, 0.018, 1), F_DARK, {
+    p: [WALL_X + 0.032, y0 - 0.045, zc],
+  });
+
+  // 3. Stepped outer casing & pediment header on the room side (x = WALL_X + 0.035)
+  b.add(roundedBox(0.085, 0.18, W + 0.36, 0.025, 1), F, { p: [WALL_X + 0.04, y1 + 0.08, zc] });
+  b.add(roundedBox(0.115, 0.055, W + 0.44, 0.015, 1), F_DARK, { p: [WALL_X + 0.055, y1 + 0.18, zc] });
+  b.add(roundedBox(0.085, H + 0.16, 0.17, 0.025, 1), F, { p: [WALL_X + 0.04, yc + 0.04, z0 - 0.08] });
+  b.add(roundedBox(0.085, H + 0.16, 0.17, 0.025, 1), F, { p: [WALL_X + 0.04, yc + 0.04, z1 + 0.08] });
+
+  // 4. Heavy outer sash frame in the glass plane
+  b.add(roundedBox(0.14, 0.08, W, 0.02, 1), F_DARK, { p: [x, y0 + 0.05, zc] });
+  b.add(roundedBox(0.14, 0.08, W, 0.02, 1), F_DARK, { p: [x, y1 - 0.04, zc] });
+  b.add(roundedBox(0.14, H, 0.08, 0.02, 1), F_DARK, { p: [x, yc, z0 + 0.04] });
+  b.add(roundedBox(0.14, H, 0.08, 0.02, 1), F_DARK, { p: [x, yc, z1 - 0.04] });
+
+  // 5. Deep 3D beveled mullions (muntin bars) dividing the 4x4 panes
+  for (let c = 1; c < cols; c++) {
+    const mz = z0 + (W * c) / cols;
+    b.add(roundedBox(0.13, H - 0.08, 0.085, 0.022, 1), F_DARK, { p: [x - 0.01, yc, mz] });
+    b.add(roundedBox(0.075, H - 0.08, 0.062, 0.018, 1), F_LIGHT, { p: [x + 0.032, yc, mz] });
+  }
+  for (let rr = 1; rr < rows; rr++) {
+    const my = y0 + (H * rr) / rows;
+    b.add(roundedBox(0.13, 0.085, W - 0.08, 0.022, 1), F_DARK, { p: [x - 0.01, my, zc] });
+    b.add(roundedBox(0.075, 0.062, W - 0.08, 0.018, 1), F_LIGHT, { p: [x + 0.032, my, zc] });
+  }
+
+  // 6. Cozy books stacked on the inner window sill
+  const sillY = y0 + 0.052;
+  const sillX = WALL_X + 0.02;
+  const sillBooks: [number, number, number, string, number][] = [
+    [-0.28, 0.22, 0.16, '#3f6b8a', 0.08],
+    [-0.28, 0.20, 0.15, '#c97a4a', -0.12],
+    [-0.28, 0.18, 0.14, '#d9a441', 0.05],
+    [1.62, 0.23, 0.16, '#4f7d5c', -0.14],
+    [1.62, 0.21, 0.15, '#b6584a', 0.09],
+  ];
+  let curY1 = sillY, curY2 = sillY;
+  sillBooks.forEach(([bz, bw, bd, col, rot], idx) => {
+    const bh = 0.034;
+    const by = idx < 3 ? (curY1 += bh) - bh / 2 : (curY2 += bh) - bh / 2;
+    b.add(roundedBox(bd, bh, bw, 0.007, 1), col, { p: [sillX, by, bz], r: [0, rot, 0] });
+    b.add(new THREE.BoxGeometry(bd - 0.015, bh - 0.008, bw - 0.015), '#f4ebd9', { p: [sillX + 0.004, by, bz], r: [0, rot, 0] });
+  });
 }
 
 /** Shelf carcass; returns the shelf levels for the book instances. */
@@ -987,6 +1123,12 @@ function buildShelves(b: EnvBuilder): number[] {
   for (const y of levels) b.add(roundedBox(depth - 0.02, 0.035, bay * bays, 0.01, 1), OAK, { p: [xc, y, z0 + (bay * bays) / 2] });
   b.add(roundedBox(depth + 0.06, 0.08, bay * bays + 0.1, 0.02, 1), OAK_DARK, { p: [xc + 0.02, h + 0.04, z0 + (bay * bays) / 2] });
   b.add(roundedBox(depth + 0.02, 0.1, bay * bays + 0.04, 0.02, 1), OAK_DEEP, { p: [xc, 0.05, z0 + (bay * bays) / 2] });
+  // Fitted oak corner return filler sealing the 20cm reveal between SHELF.z0 (-5.0) and the back wall (WALL_Z = -5.2)
+  const gapZ = z0 - WALL_Z;
+  if (gapZ > 0.01) {
+    b.add(roundedBox(depth - 0.01, h, gapZ + 0.02, 0.012, 1), OAK_DARK, { p: [xc, h / 2, WALL_Z + gapZ / 2] });
+    b.add(roundedBox(depth + 0.05, 0.08, gapZ + 0.06, 0.015, 1), OAK_DARK, { p: [xc + 0.02, h + 0.04, WALL_Z + gapZ / 2] });
+  }
   // Ivy planters on top, trailing down the front.
   const r = rng(77);
   for (const pz of [z0 + 0.45, z0 + bay * 2 + 0.35]) {
@@ -1074,25 +1216,55 @@ function buildBooks(levels: number[]): THREE.InstancedMesh {
 function buildSofaCorner(b: EnvBuilder) {
   const { x, z, len } = SOFA;
   const S = '#b9603f', S2 = '#c76c49', S3 = '#a9553a';
-  // Built facing −z with the back at +z, then turned round so it faces the camera side.
+  const th = '#ece2cc';
+
+  // 1. Main left-wall sofa section (runs along Z with back against WALL_X = -4.9, seat facing +X toward the coffee table & round rug)
+  // Built in local space facing +z (back at -z); rotated +Math.PI/2 around Y so local +z -> world +x, local -x -> world +z.
   const sb = new EnvBuilder();
   sb.add(roundedBox(len, 0.26, 0.94, 0.08, 2), S3, { p: [0, 0.17, 0] }, { ao: 0.3 });
-  for (let k = 0; k < 3; k++) sb.add(roundedBox(len / 3 - 0.06, 0.15, 0.74, 0.07, 2), S2, { p: [-len / 3 + k * (len / 3), 0.36, -0.06] });
-  sb.add(roundedBox(len, 0.62, 0.26, 0.1, 2), S, { p: [0, 0.47, 0.36] }, { ao: 0.25 });
-  for (let k = 0; k < 3; k++) sb.add(roundedBox(len / 3 - 0.08, 0.42, 0.2, 0.09, 2), S2, { p: [-len / 3 + k * (len / 3), 0.6, 0.2], r: [-0.18, 0, 0] });
+  for (let k = 0; k < 2; k++) {
+    const cw = (len - 0.36) / 2;
+    sb.add(roundedBox(cw - 0.04, 0.15, 0.74, 0.07, 2), S2, { p: [(-0.5 + k) * cw, 0.36, 0.06] });
+  }
+  sb.add(roundedBox(len, 0.62, 0.26, 0.1, 2), S, { p: [0, 0.47, -0.36] }, { ao: 0.25 });
+  for (let k = 0; k < 2; k++) {
+    const cw = (len - 0.36) / 2;
+    sb.add(roundedBox(cw - 0.06, 0.42, 0.2, 0.09, 2), S2, { p: [(-0.5 + k) * cw, 0.6, -0.2], r: [0.18, 0, 0] });
+  }
   for (const sd of [-1, 1]) sb.add(roundedBox(0.26, 0.56, 0.96, 0.11, 2), S, { p: [sd * (len / 2 - 0.1), 0.3, 0] }, { ao: 0.3 });
   for (const lx of [-len / 2 + 0.12, len / 2 - 0.12]) for (const lz of [-0.36, 0.36]) sb.add(cyl(0.035, 0.03, 0.06, 8), OAK_DEEP, { p: [lx, 0.03, lz] });
-  // Teal cushion at the head end, cream pillow at the far arm, knit throw over the back and arm.
-  sb.add(roundedBox(0.42, 0.38, 0.15, 0.07, 2), '#2f6f69', { p: [len / 2 - 0.42, 0.6, 0.12], r: [-0.3, -0.25, -0.05] });
-  sb.add(roundedBox(0.36, 0.32, 0.13, 0.06, 2), '#eadfc8', { p: [-len / 2 + 0.38, 0.58, 0.14], r: [-0.3, 0.3, 0.05] });
-  // Knit throw draped over the far arm: across the top, down the outside, a little onto the seat.
-  const th = '#ece2cc', ax = -len / 2 + 0.1;
-  sb.add(roundedBox(0.34, 0.035, 0.52, 0.016, 2), th, { p: [ax, 0.6, -0.02] });
-  sb.add(roundedBox(0.035, 0.42, 0.52, 0.016, 2), th, { p: [ax - 0.15, 0.4, -0.02], r: [0, 0, 0.06] });
-  sb.add(roundedBox(0.2, 0.035, 0.5, 0.016, 2), th, { p: [ax + 0.24, 0.45, -0.03], r: [0, 0, -0.35] });
-  for (let k = 0; k < 5; k++) sb.add(new THREE.BoxGeometry(0.04, 0.4, 0.008), '#d6c8ad', { p: [ax - 0.168, 0.4, -0.24 + k * 0.11], r: [0, 0, 0.06] });
-  b.add(sb.build(), null, { p: [x, 0, z], r: [0, Math.PI, 0] });
-  // Coffee table with a plant and a closed teal book.
+  // Green/teal cushion nestled visibly between the seated student and the sleeping orange tabby cat
+  sb.add(roundedBox(0.42, 0.38, 0.15, 0.07, 2), '#2f6f69', { p: [-0.04, 0.62, -0.10], r: [0.26, 0.14, 0.04] });
+  // Cream knit blanket with fringe draped over the +Z arm (local -x = -len/2 + 0.1, matching reference image)
+  const ax = -len / 2 + 0.1;
+  sb.add(roundedBox(0.34, 0.035, 0.54, 0.016, 2), th, { p: [ax, 0.6, 0.02] });
+  sb.add(roundedBox(0.035, 0.42, 0.54, 0.016, 2), th, { p: [ax - 0.15, 0.4, 0.02], r: [0, 0, 0.06] });
+  sb.add(roundedBox(0.2, 0.035, 0.52, 0.016, 2), th, { p: [ax + 0.22, 0.45, 0.03], r: [0, 0, -0.35] });
+  for (let k = 0; k < 5; k++) sb.add(new THREE.BoxGeometry(0.04, 0.4, 0.008), '#d6c8ad', { p: [ax - 0.168, 0.4, -0.22 + k * 0.11], r: [0, 0, 0.06] });
+  b.add(sb.build(), null, { p: [x, 0, z], r: [0, Math.PI / 2, 0] });
+
+  // 2. Lower-left corner sofa section (runs along X at z2 = 5.26, back at +Z, seat facing -Z toward the coffee table & round rug)
+  // Built in local space facing +z (back at -z); rotated Math.PI around Y so local +z -> world -z, local -x -> world +x.
+  const len2 = 1.76, x2 = -3.14, z2 = 5.26;
+  const sb2 = new EnvBuilder();
+  sb2.add(roundedBox(len2, 0.26, 0.94, 0.08, 2), S3, { p: [0, 0.17, 0] }, { ao: 0.3 });
+  for (let k = 0; k < 2; k++) {
+    const cw = (len2 - 0.36) / 2;
+    sb2.add(roundedBox(cw - 0.05, 0.15, 0.74, 0.07, 2), S2, { p: [(-0.5 + k) * cw, 0.36, 0.06] });
+  }
+  sb2.add(roundedBox(len2, 0.62, 0.26, 0.1, 2), S, { p: [0, 0.47, -0.36] }, { ao: 0.25 });
+  for (let k = 0; k < 2; k++) {
+    const cw = (len2 - 0.36) / 2;
+    sb2.add(roundedBox(cw - 0.06, 0.42, 0.2, 0.09, 2), S2, { p: [(-0.5 + k) * cw, 0.6, -0.2], r: [0.18, 0, 0] });
+  }
+  for (const sd of [-1, 1]) sb2.add(roundedBox(0.26, 0.56, 0.96, 0.11, 2), S, { p: [sd * (len2 / 2 - 0.1), 0.3, 0] }, { ao: 0.3 });
+  for (const lx of [-len2 / 2 + 0.12, len2 / 2 - 0.12]) for (const lz of [-0.36, 0.36]) sb2.add(cyl(0.035, 0.03, 0.06, 8), OAK_DEEP, { p: [lx, 0.03, lz] });
+  // Folded cream throw / pillow on the right (+X) armrest (local -x = -len2/2 + 0.12, matching reference image)
+  const armRight = -len2 / 2 + 0.12;
+  sb2.add(roundedBox(0.34, 0.12, 0.56, 0.04, 2), '#eadfc8', { p: [armRight + 0.04, 0.61, 0.02], r: [0, 0, -0.08] });
+  b.add(sb2.build(), null, { p: [x2, 0, z2], r: [0, Math.PI, 0] });
+
+  // 3. Round coffee table with a plant and a closed teal book, positioned in front of both sofa sections.
   const { x: cx, z: cz, r: cr } = COFFEE;
   b.add(cyl(cr, cr, 0.05, 32), '#c2804a', { p: [cx, 0.42, cz] });
   b.add(cyl(cr - 0.03, cr - 0.03, 0.006, 32), '#c98a50', { p: [cx, 0.447, cz] });
@@ -1213,44 +1385,41 @@ function addBookRow(b: EnvBuilder, width: number, x: number, y: number, z: numbe
 }
 
 function buildBalustrade(b: EnvBuilder) {
-  const honeyOak = '#b8743c';
-  const darkerOak = '#9c5f30';
-  const agedBrass = '#d4a84f';
-  const walnutWood = '#6e3f1d';
+  const honeyOak = '#c27c42';
+  const darkerOak = '#a66534';
+  const agedBrass = '#d8a94e';
+  const walnutWood = '#9a5d32';
 
-  const holeMinX = WELL.x; // 3.55
-  const holeMaxX = WELL.x1; // 5.50
+  const holeMinX = WELL.x; // 3.68
+  const holeMaxX = WELL.x1; // 5.63
   const holeMinZ = WELL.z0; // -1.65 (Back: stair entry)
   const holeMaxZ = WELL.z1; // 2.60 (Front: lower landing & front balustrade)
 
   const postGeo = createTurnedNewelPost(1.04);
   const balusterGeo = createTurnedBaluster(0.85);
 
-  // 1. BALUSTRADES
+  // 1. BALUSTRADES (Complete 3-sided U-shaped guardrail around the stairwell opening; back edge Z = holeMinZ is the stair entry)
   // Left side balustrade along X = holeMinX from Z = holeMinZ to Z = holeMaxZ
   addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMinZ, holeMinX, holeMaxZ, 0.92, true, true);
 
-  // Front balustrade run across front edge (Z = holeMaxZ) facing the camera
-  addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMaxZ, holeMaxX - 0.12, holeMaxZ, 0.92, false, true);
+  // Front balustrade run across front edge (Z = holeMaxZ) from X = holeMinX to X = holeMaxX
+  addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMaxZ, holeMaxX, holeMaxZ, 0.92, false, true);
 
-  // Throat return balustrade segment at the back entry (Z = holeMinZ, X = holeMinX to 3.90)
-  addBalustradeRun(b, postGeo, balusterGeo, holeMinX, holeMinZ, 3.90, holeMinZ, 0.92, false, true);
+  // Right side balustrade along X = holeMaxX from Z = holeMaxZ back to Z = holeMinZ
+  addBalustradeRun(b, postGeo, balusterGeo, holeMaxX, holeMaxZ, holeMaxX, holeMinZ, 0.92, false, true);
 
-  // Right-hand entry newel post against the right side at the back (X = holeMaxX - 0.12, Z = holeMinZ)
-  b.add(postGeo, null, { p: [holeMaxX - 0.12, 0, holeMinZ] });
-
-  // 2. FLUSH TOP LANDING NOSING & STAIRS (DESCENDING FORWARD TOWARD +Z)
-  const stairXCenter = 4.72; // Centered in the open entry
-  const stairWidth = 1.46;
+  // 2. FLUSH TOP LANDING NOSING & FULL-WIDTH STAIRS (DESCENDING FORWARD TOWARD +Z WITH ZERO SIDE GAPS)
+  const stairXCenter = (holeMinX + holeMaxX) / 2; // 4.655, centered in the stairwell
+  const stairWidth = (holeMaxX - holeMinX) - 0.08; // 1.87m: spans wall-to-wall between the left and right stringers
   const numSteps = 12;
   const stepRise = 0.185;
   const stepRun = 0.255;
   const totalRun = numSteps * stepRun; // 3.06m
   const totalDrop = numSteps * stepRise; // 2.22m
 
-  // Flush top landing nosing plank at Z = holeMinZ, Y = 0
-  b.add(roundedBox(stairWidth + 0.04, 0.034, 0.14, 0.008, 1), honeyOak, {
-    p: [stairXCenter, -0.012, holeMinZ - 0.04],
+  // Flush top landing nosing plank at Z = holeMinZ, Y = 0 spanning the full entry width
+  b.add(roundedBox(stairWidth + 0.08, 0.036, 0.18, 0.008, 1), honeyOak, {
+    p: [stairXCenter, -0.012, holeMinZ - 0.03],
   });
 
   // Steps descending forward in +Z direction
@@ -1260,144 +1429,182 @@ function buildBalustrade(b: EnvBuilder) {
 
     // Closed vertical riser (starts strictly under previous tread / nosing plank)
     const riserTop = i === 0 ? -0.012 : -(i * stepRise);
-    const riserH = riserTop - treadY;
+    const riserH = riserTop - treadY + 0.018;
     b.add(
-      new THREE.BoxGeometry(stairWidth - 0.02, riserH, 0.022),
+      new THREE.BoxGeometry(stairWidth + 0.02, riserH, 0.024),
       darkerOak,
       { p: [stairXCenter, (riserTop + treadY) / 2, holeMinZ + i * stepRun + 0.01] },
-      { ao: 0.18 },
+      { ao: 0.08 },
+    );
+
+    // Solid under-step carriage block so there is never any gap between or behind steps
+    b.add(
+      new THREE.BoxGeometry(stairWidth + 0.04, stepRise + 0.04, stepRun + 0.02),
+      darkerOak,
+      { p: [stairXCenter, treadY - stepRise / 2, treadZ] },
     );
 
     // Horizontal oak tread
     b.add(
-      roundedBox(stairWidth, 0.036, stepRun + 0.025, 0.008, 1),
+      roundedBox(stairWidth + 0.02, 0.036, stepRun + 0.03, 0.008, 1),
       honeyOak,
       { p: [stairXCenter, treadY, treadZ] },
-      { ao: 0.12 },
+      { ao: 0.06 },
     );
 
     // Rounded front bullnose nosing on front edge of each tread (facing +Z)
     b.add(
-      new THREE.CylinderGeometry(0.018, 0.018, stairWidth, 12),
+      new THREE.CylinderGeometry(0.018, 0.018, stairWidth + 0.02, 12),
       honeyOak,
       { p: [stairXCenter, treadY, treadZ + stepRun / 2 + 0.01], r: [0, 0, Math.PI / 2] },
     );
 
-    // Warm recessed architectural step light fixture on every 3rd step along the right stringer
+    // Warm recessed architectural step light fixture on every 3rd step along both stringers
     if (i % 3 === 1) {
       b.add(
-        new THREE.BoxGeometry(0.015, 0.045, 0.09),
-        '#ffea9f',
-        { p: [holeMaxX - 0.025, treadY + 0.09, treadZ] },
-        { glow: 1.5 },
+        new THREE.BoxGeometry(0.018, 0.05, 0.10),
+        '#fff0b8',
+        { p: [holeMaxX - 0.035, treadY + 0.09, treadZ] },
+        { emit: LOWER_LAMP, glow: 1.8 },
       );
     }
   }
 
-  // 3. SOLID TIMBER STRINGERS
+  // 3. SOLID FULL-DEPTH TIMBER STRINGERS FLUSH AGAINST BOTH STAIRWELL WALLS
   const stringerLength = Math.hypot(totalRun, totalDrop) + 0.25;
   const pitchAngle = Math.atan2(totalDrop, totalRun);
 
-  for (const xOffset of [-stairWidth / 2 - 0.025, stairWidth / 2 + 0.025]) {
+  for (const xPos of [holeMinX + 0.03, holeMaxX - 0.03]) {
     b.add(
-      new THREE.BoxGeometry(0.055, 0.28, stringerLength),
+      new THREE.BoxGeometry(0.06, 0.34, stringerLength),
       darkerOak,
       {
-        p: [stairXCenter + xOffset, -totalDrop / 2 - 0.08, holeMinZ + totalRun / 2],
+        p: [xPos, -totalDrop / 2 - 0.09, holeMinZ + totalRun / 2],
         r: [pitchAngle, 0, 0],
       },
-      { ao: 0.2 },
+      { ao: 0.1 },
     );
   }
 
   const lowerLandingY = -totalDrop; // -2.22m
 
-  // 4. OPEN DESCENDING BANISTER WITH TURNED BALUSTERS ALONG RIGHT STRINGER
-  const wallHandrailLength = stringerLength - 0.1;
-  const handrailX = holeMaxX - 0.12;
+  // 4. DESCENDING OAK HANDRAILS ALONG BOTH STAIRWELL WALLS
+  const wallHandrailLength = stringerLength - 0.12;
   const midY = -totalDrop / 2;
   const midZ = holeMinZ + totalRun / 2;
 
-  // Moulded top handrail
-  b.add(
-    new THREE.CylinderGeometry(0.032, 0.032, wallHandrailLength, 16),
-    honeyOak,
-    {
-      p: [handrailX, midY + 0.88, midZ],
-      r: [Math.PI / 2 + pitchAngle, 0, 0],
-    },
-  );
-
-  // Sub-rail under top handrail
-  b.add(
-    new THREE.BoxGeometry(0.045, 0.02, wallHandrailLength),
-    darkerOak,
-    {
-      p: [handrailX, midY + 0.84, midZ],
-      r: [pitchAngle, 0, 0],
-    },
-  );
-
-  // Bottom shoe rail along the stringer
-  b.add(
-    new THREE.BoxGeometry(0.055, 0.032, wallHandrailLength),
-    darkerOak,
-    {
-      p: [handrailX, midY + 0.06, midZ],
-      r: [pitchAngle, 0, 0],
-    },
-  );
-
-  // Lower newel post anchoring the right handrail at the lower landing
-  b.add(postGeo, null, { p: [handrailX, lowerLandingY, holeMinZ + totalRun] });
-
-  // Matching turned balusters rising from shoe rail up to the sub-rail
-  const stairBalusterGeo = createTurnedBaluster(0.76);
-  for (let i = 0; i < numSteps; i++) {
-    const by = -(i + 0.5) * stepRise + 0.075;
-    const bz = holeMinZ + (i + 0.5) * stepRun;
-    b.add(stairBalusterGeo, null, { p: [handrailX, by, bz] });
+  for (const side of [-1, 1]) {
+    const hX = side < 0 ? holeMinX + 0.075 : holeMaxX - 0.075;
+    // Moulded descending top handrail
+    b.add(
+      new THREE.CylinderGeometry(0.028, 0.028, wallHandrailLength, 14),
+      honeyOak,
+      {
+        p: [hX, midY + 0.86, midZ],
+        r: [Math.PI / 2 + pitchAngle, 0, 0],
+      },
+    );
+    // Brass wall brackets supporting the descending handrail
+    for (const frac of [0.2, 0.5, 0.8]) {
+      const bz = holeMinZ + totalRun * frac;
+      const by = -totalDrop * frac + 0.80;
+      b.add(
+        new THREE.BoxGeometry(0.06, 0.022, 0.022),
+        agedBrass,
+        { p: [hX - side * 0.03, by, bz] },
+      );
+    }
   }
-  stairBalusterGeo.dispose();
 
-  // 5. LOWER LIBRARY HALL LANDING & BOOKSHELF AT BOTTOM OF STAIRS
+  // 5. LOWER LIBRARY HALL LANDING, BOOKSHELF & PLANT AT BOTTOM OF STAIRS
 
   // Lower library bookshelf against front wall of bottom landing (facing -Z)
   b.add(
-    roundedBox(1.75, 2.05, 0.28, 0.02, 1),
+    roundedBox(1.52, 2.02, 0.26, 0.02, 1),
     walnutWood,
-    { p: [stairXCenter - 0.2, lowerLandingY + 1.025, holeMaxZ - 0.16] },
-    { ao: 0.3 },
+    { p: [stairXCenter + 0.04, lowerLandingY + 1.01, holeMaxZ - 0.15] },
+    { ao: 0.15 },
   );
 
   // 4 shelves of books
   for (let row = 0; row < 4; row++) {
     const sy = lowerLandingY + 0.35 + row * 0.44;
     b.add(
-      new THREE.BoxGeometry(1.68, 0.03, 0.26),
+      new THREE.BoxGeometry(1.44, 0.03, 0.24),
       honeyOak,
-      { p: [stairXCenter - 0.2, sy, holeMaxZ - 0.16] },
+      { p: [stairXCenter + 0.04, sy, holeMaxZ - 0.15] },
     );
-    addBookRow(b, 1.5, stairXCenter - 0.2, sy + 0.015, holeMaxZ - 0.16);
+    addBookRow(b, 1.32, stairXCenter + 0.04, sy + 0.015, holeMaxZ - 0.15);
   }
 
-  // 6. WARM SCONCE IN LOWER LIBRARY HALL (Above bookshelf illuminating the books)
+  // Welcoming potted plant on the lower landing beside the bookshelf
+  plant(b, holeMinX + 0.26, holeMaxZ - 0.42, {
+    pot: '#efe8dc', potType: 'ceramic', style: 'bush',
+    potR: 0.13, potH: 0.2, leaves: 14, height: 0.55, spread: 0.9, y0: lowerLandingY, seed: 314,
+  });
+
+  // 6. WARM LIGHT SOURCES IN THE STAIRWELL & RIGHT GALLERY
+  // (A) Warm brass sconce in lower library hall (above bookshelf illuminating the landing)
+  const scX = stairXCenter + 0.04;
   b.add(
     new THREE.CylinderGeometry(0.07, 0.07, 0.02, 16),
     agedBrass,
-    { p: [stairXCenter - 0.2, lowerLandingY + 2.15, holeMaxZ - 0.02], r: [Math.PI / 2, 0, 0] },
+    { p: [scX, lowerLandingY + 2.08, holeMaxZ - 0.02], r: [Math.PI / 2, 0, 0] },
   );
   b.add(
     new THREE.CylinderGeometry(0.012, 0.012, 0.14, 8),
     agedBrass,
-    { p: [stairXCenter - 0.2, lowerLandingY + 2.15, holeMaxZ - 0.08] },
+    { p: [scX, lowerLandingY + 2.08, holeMaxZ - 0.08] },
   );
   b.add(
-    new THREE.CylinderGeometry(0.045, 0.085, 0.14, 16),
+    new THREE.CylinderGeometry(0.055, 0.095, 0.16, 16),
     '#fff3d1',
-    { p: [stairXCenter - 0.2, lowerLandingY + 2.22, holeMaxZ - 0.12] },
-    { glow: 1.8 },
+    { p: [scX, lowerLandingY + 2.15, holeMaxZ - 0.12] },
+    { emit: LOWER_LAMP, glow: 2.2 },
   );
+
+  // (B) Warm brass wall sconce & framed botanical plaque on the left stairwell wall above the lower steps
+  const swX = holeMinX + 0.015, swY = -0.46, swZ = 1.72;
+  b.add(cyl(0.055, 0.06, 0.018, 14), agedBrass, { p: [swX, swY, swZ], r: [0, 0, Math.PI / 2] });
+  b.add(new THREE.BoxGeometry(0.08, 0.02, 0.02), agedBrass, { p: [swX + 0.04, swY - 0.02, swZ] });
+  b.add(cyl(0.055, 0.038, 0.13, 14), '#fff3cf', { p: [swX + 0.08, swY + 0.05, swZ] }, { emit: LOWER_LAMP, glow: 2.0 });
+  const pqZ = 1.15, pqY = -0.48;
+  b.add(roundedBox(0.026, 0.42, 0.34, 0.008, 1), darkerOak, { p: [swX, pqY, pqZ] });
+  b.add(new THREE.BoxGeometry(0.03, 0.34, 0.26), '#f5ead4', { p: [swX + 0.003, pqY, pqZ] });
+  b.add(new THREE.BoxGeometry(0.032, 0.20, 0.14), '#4e7d52', { p: [swX + 0.005, pqY, pqZ] });
+
+  // (C) Matching warm glowing stairwell window on the right stairwell wall above the lower steps
+  const rwX = holeMaxX - 0.02, rwY = -0.52, rwZ = 1.42;
+  b.add(roundedBox(0.045, 0.62, 0.96, 0.015, 1), darkerOak, { p: [rwX, rwY, rwZ] });
+  b.add(new THREE.BoxGeometry(0.028, 0.52, 0.86), '#fff3cf', { p: [rwX - 0.008, rwY, rwZ] }, { emit: STAIR_LAMP, glow: 1.9 });
+  b.add(new THREE.BoxGeometry(0.05, 0.56, 0.032), honeyOak, { p: [rwX - 0.005, rwY, rwZ] });
+  b.add(new THREE.BoxGeometry(0.05, 0.032, 0.90), honeyOak, { p: [rwX - 0.005, rwY, rwZ] });
+
+  // (D) Warm brass wall sconces on the back wall flanking the stairwell & right gallery
+  for (const [bx, by] of [[4.95, 2.25], [6.25, 2.25], [8.85, 2.25]] as [number, number][]) {
+    b.add(cyl(0.065, 0.072, 0.022, 16), agedBrass, { p: [bx, by, WALL_Z + 0.04], r: [Math.PI / 2, 0, 0] });
+    b.add(new THREE.BoxGeometry(0.024, 0.024, 0.14), agedBrass, { p: [bx, by - 0.02, WALL_Z + 0.10] });
+    b.add(cyl(0.075, 0.048, 0.16, 16), '#fff3d1', { p: [bx, by + 0.09, WALL_Z + 0.16] }, { emit: STAIR_LAMP, glow: 2.2 });
+  }
+
+  // (E) Cozy open-front library bookcase / credenza in the right-hand reading alcove against the back wall
+  const credX = 7.55, credZ = WALL_Z + 0.24;
+  b.add(new THREE.BoxGeometry(1.85, 0.88, 0.04), darkerOak, { p: [credX, 0.44, credZ - 0.16] });
+  for (const sx of [-0.90, 0.90]) {
+    b.add(roundedBox(0.05, 0.88, 0.36, 0.01, 1), honeyOak, { p: [credX + sx, 0.44, credZ] });
+  }
+  b.add(roundedBox(1.92, 0.05, 0.40, 0.015, 1), honeyOak, { p: [credX, 0.89, credZ] });
+  b.add(roundedBox(1.88, 0.08, 0.38, 0.015, 1), darkerOak, { p: [credX, 0.04, credZ] });
+  for (const sy of [0.08, 0.46]) {
+    b.add(new THREE.BoxGeometry(1.76, 0.03, 0.34), honeyOak, { p: [credX, sy, credZ + 0.01] });
+    addBookRow(b, 1.66, credX, sy + 0.015, credZ + 0.04);
+  }
+  // Warm reading lamp & stacked books on top of the right-alcove credenza
+  b.add(cyl(0.08, 0.10, 0.03, 14), agedBrass, { p: [credX - 0.55, 0.93, credZ] });
+  b.add(cyl(0.018, 0.018, 0.24, 10), agedBrass, { p: [credX - 0.55, 1.05, credZ] });
+  b.add(new THREE.SphereGeometry(0.14, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.58), '#ffe9b8', { p: [credX - 0.55, 1.18, credZ] }, { emit: STAIR_LAMP, glow: 2.0 });
+  b.add(roundedBox(0.24, 0.04, 0.18, 0.008, 1), '#3b6e6c', { p: [credX + 0.42, 0.935, credZ + 0.02], r: [0, 0.14, 0] });
+  b.add(roundedBox(0.21, 0.038, 0.16, 0.008, 1), '#c96f4a', { p: [credX + 0.42, 0.974, credZ + 0.02], r: [0, -0.08, 0] });
 
   // Clean up reusable template geometries
   postGeo.dispose();
@@ -1410,6 +1617,96 @@ function buildPendant(b: EnvBuilder) {
   b.add(new THREE.SphereGeometry(0.44, 24, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), '#fff3d6', { p: [x, y + 0.001, z], s: [1, 0.1, 1] }, { emit: PENDANT_LAMP, glow: 1.6 });
   b.add(cyl(0.05, 0.07, 0.06, 12), '#c99a4c', { p: [x, y + 0.3, z] });
   b.add(cyl(0.006, 0.006, 6, 4), '#2a2420', { p: [x, y + 3.3, z] });
+}
+
+function buildRoomDetails(b: EnvBuilder) {
+  const honeyOak = '#b8743c';
+  const darkerOak = '#8a522c';
+  const walnut = '#5e3a24';
+  const agedBrass = '#c89b52';
+
+  // 1. Floating honey-oak display shelf on the left wall above the sofa (x = WALL_X, y = 1.48, z = 3.77)
+  const shX = WALL_X + 0.10, shY = 1.48, shZ = 3.77, shLen = 1.12, shDepth = 0.19;
+  b.add(roundedBox(shDepth, 0.036, shLen, 0.008, 1), honeyOak, { p: [shX, shY, shZ] }, { ao: 0.18 });
+  for (const dz of [-0.42, 0.42]) {
+    b.add(roundedBox(0.14, 0.13, 0.032, 0.006, 1), darkerOak, { p: [WALL_X + 0.075, shY - 0.075, shZ + dz] });
+  }
+  // Mini books & ceramic pot on the floating wall shelf
+  const shelfBookCols = ['#3f6b8a', '#b6584a', '#d9a441', '#4f7d5c', '#c97a4a', '#6e3d5c', '#2f6d5f'];
+  let bz = shZ - 0.44;
+  for (let i = 0; i < shelfBookCols.length; i++) {
+    const bt = 0.032 + (i % 3) * 0.008;
+    const bh = 0.17 + ((i * 3) % 4) * 0.022;
+    b.add(roundedBox(0.14, bh, bt - 0.003, 0.004, 1), shelfBookCols[i], { p: [shX - 0.01, shY + 0.018 + bh / 2, bz + bt / 2] });
+    bz += bt;
+  }
+  // Decorative brass bookend & small potted succulent on the right side of the floating shelf
+  b.add(roundedBox(0.11, 0.11, 0.016, 0.004, 1), agedBrass, { p: [shX - 0.01, shY + 0.073, bz + 0.012] });
+  plant(b, shX, shZ + 0.34, {
+    pot: '#efe8dc', potR: 0.058, potH: 0.085, leaves: 7, height: 0.14, spread: 0.85, leaf: 0.048, y0: shY + 0.018, seed: 91,
+  });
+
+  // 2. Classic round wooden & brass library wall clock on the left wall (z = 5.18, y = 2.38)
+  const clkX = WALL_X + 0.028, clkY = 2.38, clkZ = 5.18, clkR = 0.27;
+  // Turned walnut outer case + brass inner bezel + warm cream dial face
+  b.add(cyl(clkR, clkR, 0.052, 28), walnut, { p: [clkX, clkY, clkZ], r: [0, 0, Math.PI / 2] }, { ao: 0.22 });
+  b.add(cyl(clkR - 0.032, clkR - 0.032, 0.056, 28), agedBrass, { p: [clkX + 0.004, clkY, clkZ], r: [0, 0, Math.PI / 2] });
+  b.add(cyl(clkR - 0.048, clkR - 0.048, 0.06, 28), '#f5ead2', { p: [clkX + 0.006, clkY, clkZ], r: [0, 0, Math.PI / 2] });
+  // 12 hour tick marks & clock hands (10:10 golden hour pose)
+  for (let h = 0; h < 12; h++) {
+    const a = (h / 12) * Math.PI * 2;
+    const tr = clkR - 0.078;
+    const isCard = h % 3 === 0;
+    b.add(
+      new THREE.BoxGeometry(0.008, isCard ? 0.032 : 0.018, isCard ? 0.012 : 0.007),
+      '#3a2a1d',
+      { p: [clkX + 0.036, clkY + Math.cos(a) * tr, clkZ + Math.sin(a) * tr], r: [a, 0, 0] },
+    );
+  }
+  // Hour hand, minute hand, and brass center cap
+  b.add(roundedBox(0.01, 0.11, 0.016, 0.003, 1), '#2b1e16', { p: [clkX + 0.038, clkY + 0.03, clkZ - 0.038], r: [-0.95, 0, 0] });
+  b.add(roundedBox(0.01, 0.15, 0.012, 0.003, 1), '#2b1e16', { p: [clkX + 0.04, clkY + 0.038, clkZ + 0.055], r: [0.95, 0, 0] });
+  b.add(cyl(0.016, 0.016, 0.018, 12), agedBrass, { p: [clkX + 0.038, clkY, clkZ], r: [0, 0, Math.PI / 2] });
+
+  // 3. Turned honey-oak coat stand & ceramic/brass umbrella stand near the entry door (x = 3.36..3.68, z = WALL_Z + 0.34)
+  const csX = 3.36, csZ = WALL_Z + 0.34, csH = 1.78;
+  b.add(cyl(0.18, 0.21, 0.04, 16), walnut, { p: [csX, 0.02, csZ] }, { ao: 0.3 });
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+    b.add(
+      roundedBox(0.035, 0.26, 0.16, 0.01, 1),
+      darkerOak,
+      { p: [csX + Math.sin(a) * 0.11, 0.13, csZ + Math.cos(a) * 0.11], r: [0.35, a, 0] },
+    );
+  }
+  b.add(cyl(0.026, 0.038, csH - 0.06, 12), honeyOak, { p: [csX, csH / 2, csZ] });
+  b.add(cyl(0.038, 0.038, 0.05, 12), darkerOak, { p: [csX, 1.15, csZ] });
+  b.add(sphere(0.042, 12, 8), honeyOak, { p: [csX, csH, csZ], s: [1, 1.25, 1] });
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + 0.3;
+    b.add(
+      roundedBox(0.016, 0.12, 0.13, 0.006, 1),
+      agedBrass,
+      { p: [csX + Math.sin(a) * 0.075, csH - 0.16, csZ + Math.cos(a) * 0.075], r: [-0.35, a, 0] },
+    );
+  }
+  // Warm tan felt fedora / scholar hat perched on one of the top hooks + draped teal scarf
+  const hx = csX - 0.08, hy = csH - 0.07, hz = csZ + 0.06;
+  b.add(cyl(0.16, 0.16, 0.014, 18), '#c89b62', { p: [hx, hy, hz], r: [0.28, 0.2, 0.35] });
+  b.add(cyl(0.095, 0.105, 0.09, 16), '#b88950', { p: [hx - 0.015, hy + 0.045, hz + 0.01], r: [0.28, 0.2, 0.35] });
+  b.add(cyl(0.102, 0.104, 0.02, 16), '#6e3d28', { p: [hx - 0.005, hy + 0.018, hz + 0.004], r: [0.28, 0.2, 0.35] });
+  b.add(roundedBox(0.065, 0.46, 0.045, 0.018, 1), '#356d68', { p: [csX + 0.08, csH - 0.38, csZ + 0.05], r: [0.06, 0.2, -0.08] });
+
+  // Ceramic & brass umbrella stand beside the coat stand
+  const usX = 3.68, usZ = WALL_Z + 0.30, usH = 0.52, usR = 0.125;
+  b.add(cyl(usR, usR * 0.88, usH, 18), '#e8dcc4', { p: [usX, usH / 2, usZ] }, { ao: 0.28 });
+  b.add(torus(usR, 0.014, 8, 20), agedBrass, { p: [usX, usH - 0.01, usZ], r: [Math.PI / 2, 0, 0] });
+  b.add(torus(usR * 0.91, 0.012, 8, 20), agedBrass, { p: [usX, 0.02, usZ], r: [Math.PI / 2, 0, 0] });
+  // Two rolled umbrellas inside the stand (burgundy and forest green)
+  b.add(cyl(0.014, 0.032, 0.68, 10), '#8c3b32', { p: [usX - 0.03, 0.38, usZ + 0.01], r: [0.08, 0, 0.14] });
+  b.add(torus(0.038, 0.009, 6, 12, Math.PI), walnut, { p: [usX - 0.11, 0.72, usZ + 0.035], r: [0, 0.2, 0.14] });
+  b.add(cyl(0.014, 0.032, 0.66, 10), '#2d5c46', { p: [usX + 0.035, 0.37, usZ - 0.01], r: [-0.06, 0, -0.12] });
+  b.add(torus(0.038, 0.009, 6, 12, Math.PI), honeyOak, { p: [usX + 0.11, 0.70, usZ - 0.03], r: [0, -0.3, -0.12] });
 }
 
 // ---- assembly ---------------------------------------------------------------------------
@@ -1433,16 +1730,23 @@ export function buildRoom(): RoomBuild {
   buildDoorCasing(fb);
   buildHallwayCorridor(fb, group);
   buildPendant(fb);
+  buildRoomDetails(fb);
   const paintings: THREE.Mesh[] = [];
-  // Two paintings spaced out on the left wall (Misty Evergreen Hills and Golden Hour Sunset)
+  // Two paintings spaced out on the back wall (Misty Evergreen Hills and Golden Hour Sunset)
   paintings.push(frame(fb, 0.76, 0.76, [-1.25, 2.4, WALL_Z], 0, 'hills', 4092));
   paintings.push(frame(fb, 0.76, 0.76, [-0.05, 2.4, WALL_Z], 0, 'sunset', 4092));
   // The third painting on the right wall section past the door (Alpine Mirror Lake)
-  paintings.push(frame(fb, 0.76, 0.76, [4.38, 2.4, WALL_Z], 0, 'lake', 4092));
+  paintings.push(frame(fb, 0.76, 0.76, [4.25, 2.4, WALL_Z], 0, 'lake', 4092));
+  // Fourth painting on the right gallery wall past the second column
+  paintings.push(frame(fb, 0.76, 0.76, [7.05, 2.4, WALL_Z], 0, 'hills', 5120));
+  // Two framed paintings on the left lounge wall above the corner sofa
+  paintings.push(frame(fb, 0.68, 0.68, [WALL_X, 2.38, 3.32], Math.PI / 2, 'sunset', 6011));
+  paintings.push(frame(fb, 0.68, 0.68, [WALL_X, 2.38, 4.22], Math.PI / 2, 'lake', 6012));
   paintings.forEach((p) => group.add(p));
   plant(fb, 1.48, WALL_Z + 0.42, { pot: '#efe8dc', potType: 'ceramic', style: 'tree', potR: 0.21, potH: 0.38, leaves: 26, height: 1.25, seed: 719 });
-  plant(fb, WALL_X + 0.45, 4.15, { pot: TERRA, potType: 'terracotta', style: 'bush', potR: 0.18, potH: 0.26, leaves: 22, height: 0.85, droop: 0.5, seed: 6 });
+  plant(fb, WALL_X + 0.38, 5.05, { pot: TERRA, potType: 'terracotta', style: 'bush', potR: 0.17, potH: 0.25, leaves: 22, height: 0.82, droop: 0.5, seed: 6 });
   plant(fb, -2.6, WALL_Z + 0.45, { pot: TERRA, potType: 'terracotta', style: 'pilea', potR: 0.17, potH: 0.25, leaves: 20, height: 0.75, droop: 0.48, seed: 402 });
+  plant(fb, 5.95, WALL_Z + 0.45, { pot: '#efe8dc', potType: 'ceramic', style: 'tree', potR: 0.19, potH: 0.34, leaves: 22, height: 1.15, seed: 814 });
 
   // Seat lamps (bodies in the furniture mesh; shades glow with the lamp level).
   const seatsLamp: (LampInfo & { world: THREE.Vector3; yaw: number })[] = [];
@@ -1630,12 +1934,14 @@ export function buildRoom(): RoomBuild {
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   const statics: [number, number, number, number, number][] = [
     // x, z, w, d, strength
-    [SOFA.x, SOFA.z, SOFA.len + 0.5, 1.3, 0.5], [COFFEE.x, COFFEE.z, 1.3, 1.3, 0.35],
+    [SOFA.x, SOFA.z, 1.25, SOFA.len + 0.4, 0.48],
+    [-3.14, 5.26, 2.1, 1.25, 0.48],
+    [COFFEE.x, COFFEE.z, 1.3, 1.3, 0.35],
     ...STOOLS.map(([x, z]): [number, number, number, number, number] => [x, z, 0.6, 0.6, 0.35]),
     [WALL_X + 0.4, (COUNTER.z0 + COUNTER.z1) / 2, 1.0, COUNTER.z1 - COUNTER.z0 + 0.4, 0.3],
     [WALL_X + 0.35, SHELF.z0 + 1.5, 0.9, 3.4, 0.3],
-    [1.48, WALL_Z + 0.42, 0.7, 0.7, 0.35], [WALL_X + 0.45, 4.15, 0.6, 0.6, 0.35],
-    [-2.6, WALL_Z + 0.45, 0.55, 0.55, 0.35],
+    [1.48, WALL_Z + 0.42, 0.7, 0.7, 0.35], [WALL_X + 0.38, 5.05, 0.6, 0.6, 0.35],
+    [-2.6, WALL_Z + 0.45, 0.55, 0.55, 0.35], [3.50, WALL_Z + 0.32, 0.75, 0.55, 0.35],
   ];
   const blobAttr = blobGeo.getAttribute('aStr') as THREE.InstancedBufferAttribute;
   statics.forEach(([x, z, w, d, st], i) => { blobs.setMatrixAt(i, _m.makeScale(w, 1, d).setPosition(x, 0.031, z)); blobAttr.setX(i, st); });
@@ -1643,10 +1949,13 @@ export function buildRoom(): RoomBuild {
   for (let i = FIRST_DYNAMIC; i < BLOBS; i++) blobs.setMatrixAt(i, zero);
   blobs.userData.first = FIRST_DYNAMIC;
 
-  // Fixed light rig entries: pendant and window spill.
+  // Fixed light rig entries: pendant, window spill, upper stairwell & right gallery fill, lower landing sconce fill.
   lightRig.pos[PENDANT_LAMP].set(PENDANT.x, PENDANT.y - 0.3, PENDANT.z, 6.6);
   lightRig.pos[WINDOW_LAMP].set(WALL_X + 0.9, 2.3, (WINDOW.z0 + WINDOW.z1) / 2, 4.6);
+  lightRig.pos[STAIR_LAMP].set(5.35, 1.85, -0.45, 7.8);
+  lightRig.pos[LOWER_LAMP].set(4.65, -0.35, 1.45, 5.8);
   const pendantTint = new THREE.Color('#ffd9a0');
+  const stairTint = new THREE.Color('#ffdfa8');
 
   // ---- per frame ----------------------------------------------------------------------
   const _p = new THREE.Vector3(), _s = new THREE.Vector3(), _qq = new THREE.Quaternion(), _y = new THREE.Vector3(0, 1, 0);
@@ -1671,6 +1980,11 @@ export function buildRoom(): RoomBuild {
       }
       lightRig.level[PENDANT_LAMP] = atmo.pendant;
       lightRig.col[PENDANT_LAMP].set(pendantTint.r, pendantTint.g, pendantTint.b).multiplyScalar(2.5 * atmo.pendant);
+      const stairLv = Math.max(0.68, atmo.pendant);
+      lightRig.level[STAIR_LAMP] = stairLv;
+      lightRig.col[STAIR_LAMP].set(stairTint.r, stairTint.g, stairTint.b).multiplyScalar(2.25 * stairLv);
+      lightRig.level[LOWER_LAMP] = Math.max(0.78, atmo.pendant);
+      lightRig.col[LOWER_LAMP].set(stairTint.r, stairTint.g, stairTint.b).multiplyScalar(2.65 * Math.max(0.78, atmo.pendant));
       gAmt[MAX_SLOTS] = 0.45 * atmo.pendant * atmo.lampGlow;
       lightRig.col[WINDOW_LAMP].set(atmo.spill.r, atmo.spill.g, atmo.spill.b).multiplyScalar(atmo.spillI);
       (gGeo.attributes.aAmt as THREE.BufferAttribute).needsUpdate = true;

@@ -71,8 +71,6 @@ const seg = (x: number, a: number, b: number) => smooth((x - a) / (b - a));
 /** 0 → 1 over [a, b], held, back to 0 over [c, d]. */
 const win = (x: number, a: number, b: number, c: number, d: number) => seg(x, a, b) * (1 - seg(x, c, d));
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-// Lying on the sofa: body axis along −x (head toward the far arm), face up.
-const LIE_Q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0)));
 
 /** Spot reservations so two people never share a destination. */
 class Spots {
@@ -385,7 +383,7 @@ class Agent {
         const sp = this.spot!;
         if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
         this.arrive = 'dest';
-        this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
+        this.faceEnd = sp.face;
       } else {
         this.arrive = 'door';
         this.faceEnd = null;
@@ -412,7 +410,7 @@ class Agent {
         const sp = this.spot!;
         if (sp.kind === 'stretch' || sp.kind === 'shelf') P.push(new THREE.Vector2(sp.x, sp.z));
         this.arrive = 'dest';
-        this.faceEnd = sp.kind === 'sofa' ? 0 : sp.face;
+        this.faceEnd = sp.face;
       } else {
         this.arrive = 'door';
         this.faceEnd = null;
@@ -616,7 +614,7 @@ class Agent {
       this.dDur = sp.kind === 'window' || sp.kind === 'sofa' ? (this.lying ? 1.8 : 1.2) : sp.kind === 'shelf' ? 0.8 : 0.4;
     }
     // Turn to face the spot's way while entering (sofa: back to the cushion).
-    const face = sp.kind === 'sofa' ? 0 : sp.face;
+    const face = sp.face;
     if (this.dPhase === 'enter') {
       this.heading = wrap(this.heading + THREE.MathUtils.clamp(wrap(face - this.heading), -3.5 * dt, 3.5 * dt));
       if (this.dT >= this.dDur) { this.dPhase = 'loop'; this.dT = 0; this.dSub = 0; this.dSubT = t; }
@@ -981,26 +979,18 @@ class Agent {
   private sofaPose(t: number, g: Pose, k: number): Expression {
     const sp = this.spot!;
     const ap = this.ctx.nav.node(sp.node);
-    const hipX = this.lying ? SOFA.x - SOFA.len / 2 + 1.12 : sp.x;
-    const sit = this.lying ? seg(k, 0, 0.55) : k;
-    const lie = this.lying ? seg(k, 0.5, 1) : 0;
-    this.pos.set(THREE.MathUtils.lerp(ap.x, hipX, this.lying ? seg(k, 0.3, 1) : 0) + (this.lying ? 0 : 0), THREE.MathUtils.lerp(ap.y, SOFA.z + 0.02, sit));
-    if (!this.lying) this.pos.x = sp.x;
-    this.rootY = THREE.MathUtils.lerp(STAND_ROOT_Y, SOFA.seat - 0.1, smooth(sit)) + 0.2 * lie;
-    if (this.dPhase !== 'enter' || this.dT > 0.4) this.heading = wrap(this.heading + wrap(0 - this.heading) * 0.2);
-    this.lieQ = this.lying && lie > 0 ? LIE_Q : null;
-    if (this.lying) this.lieW = lie;
+    const sit = k;
+    this.pos.set(THREE.MathUtils.lerp(ap.x, sp.x, sit), THREE.MathUtils.lerp(ap.y, sp.z, sit));
+    this.rootY = THREE.MathUtils.lerp(STAND_ROOT_Y, SOFA.seat - 0.1, smooth(sit));
+    if (this.dPhase !== 'enter' || this.dT > 0.4) this.heading = wrap(this.heading + wrap(sp.face - this.heading) * 0.2);
+    this.lieQ = null;
+    this.lieW = 0;
     const lt = t - this.dSubT + this.ph * 3;
-    if (lie > 0) {
-      g.hipL = 0.1 * lie + SEAT_HIP * 0.95 * (1 - lie); g.hipR = -0.25 * lie + SEAT_HIP * 0.95 * (1 - lie); g.kneeL = 0.08 * lie + 1.4 * (1 - lie); g.kneeR = 0.55 * lie + 1.4 * (1 - lie); g.splay = 0.02;
-      g.lean = 0.36 * lie; g.hp = 0.1 * lie; g.hy = 0.35 * lie; g.hr = 0.1 * lie;
-    } else {
-      g.hipL = g.hipR = SEAT_HIP * 0.95 * sit; g.kneeL = g.kneeR = 1.45 * sit; g.splay = 0.06 * sit;
-      g.lean = -0.2 * sit; g.hp = 0.02;
-    }
+    g.hipL = g.hipR = SEAT_HIP * 0.95 * sit; g.kneeL = g.kneeR = 1.45 * sit; g.splay = 0.06 * sit;
+    g.lean = -0.2 * sit; g.hp = 0.02;
     const yawn = this.dPhase === 'loop' ? win(lt % 26, 14, 14.6, 16.6, 17.4) : 0;
-    const sip = this.dPhase === 'loop' ? win(lt % 9, 4, 4.8, 5.8, 6.6) * (1 - yawn) * (1 - lie) : 0;
-    this.mugHold(g, sip, Math.max(sit, lie));
+    const sip = this.dPhase === 'loop' ? win(lt % 9, 4, 4.8, 5.8, 6.6) * (1 - yawn) : 0;
+    this.mugHold(g, sip, sit);
     if (yawn > 0) {
       const free = this.mugRight() ? g.armL : g.armR;
       headPoint(g, MOUTH, _a); _a.z += 0.05; _a.x += this.mugRight() ? -0.02 : 0.02;

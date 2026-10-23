@@ -24,12 +24,12 @@ export const TABLE = { len: 5.6, depth: 1.36 };
 /** Inner faces of the two walls: the window/bookshelf wall (−x) and the door wall (−z). */
 export const WALL_X = -4.9;
 export const WALL_Z = -5.2;
-export const WALL_H = 5.6;
+export const WALL_H = 6.8;
 /** Far edges of the floor on the open sides. */
-export const FLOOR_X1 = 9;
-export const FLOOR_Z1 = 7.5;
-/** Stairwell opening at the near-right (x: [3.55..5.50], z: [-1.65..2.60]). */
-export const WELL = { x: 3.55, z: -0.6, x1: 5.50, z0: -1.65, z1: 2.60 };
+export const FLOOR_X1 = 11.2;
+export const FLOOR_Z1 = 8.6;
+/** Stairwell opening at the near-right (x: [3.68..5.63], z: [-1.65..2.60]). */
+export const WELL = { x: 3.68, z: -0.6, x1: 5.63, z0: -1.65, z1: 2.60 };
 
 export const WINDOW = { z0: -0.85, z1: 2.55, y0: 1.08, y1: 4.0, cols: 4, rows: 4, mull: 0.06 };
 export const COUNTER = { top: 0.96, depth: 0.62, z0: -1.15, z1: 2.85 };
@@ -112,17 +112,17 @@ export interface Spot {
 export const STOOLS: [number, number][] = [[-4.16, 0.2], [-4.16, 1.1], [-4.16, 2.0]];
 export const STOOL_TOP = 0.56;
 
-/** Sofa runs along x with its back toward the table (−z), facing the camera side. */
-export const SOFA = { x: -3.05, z: 3.3, len: 2.7, seat: 0.43 };
-export const COFFEE = { x: -2.45, z: 5.0, r: 0.5 };
+/** L-shaped corner sofa: main section hugs the left wall (running along z, facing +x toward the coffee table); second section sits at the lower-left (running along x, facing -z toward the coffee table). */
+export const SOFA = { x: -4.32, z: 3.66, len: 1.72, seat: 0.45 };
+export const COFFEE = { x: -2.82, z: 3.84, r: 0.5 };
 
 export const SPOTS: Spot[] = [
   { kind: 'shelf', id: 'shelfA', x: -4.1, z: -3.43, face: -Math.PI / 2, node: 'shA', k: 1 },
   { kind: 'shelf', id: 'shelfB', x: -4.1, z: -2.38, face: -Math.PI / 2, node: 'shB', k: 2 },
   { kind: 'window', id: 'win0', x: STOOLS[0][0], z: STOOLS[0][1], face: -Math.PI / 2, node: 'wn0', k: 0 },
   { kind: 'window', id: 'win2', x: STOOLS[2][0], z: STOOLS[2][1], face: -Math.PI / 2, node: 'wn2', k: 2 },
-  { kind: 'sofa', id: 'sofaA', x: -3.9, z: SOFA.z, face: 0, node: 'sA', k: 0 },
-  { kind: 'sofa', id: 'sofaB', x: -2.2, z: SOFA.z, face: 0, node: 'sB', k: 1 },
+  { kind: 'sofa', id: 'sofaA', x: SOFA.x + 0.14, z: 4.02, face: Math.PI / 2, node: 'sA', k: 0 },
+  { kind: 'sofa', id: 'sofaB', x: -3.14, z: 5.10, face: Math.PI, node: 'sB', k: 1 },
 ];
 
 /** Walk graph: nodes (x, z) and the edges between them. Paths stay clear of furniture. */
@@ -133,7 +133,7 @@ export const NAV_NODES: Record<string, [number, number]> = {
   bw: [-3.55, -AISLE_Z], w0: [-3.55, 0], fw: [-3.55, AISLE_Z],
   c0: [-3.55, -0.9], wn0: [-3.55, STOOLS[0][1]], wn1: [-3.55, STOOLS[1][1]], wn2: [-3.55, STOOLS[2][1]],
   shA: [-3.75, -3.43], shB: [-3.75, -2.6],
-  s0: [-1.35, 2.75], s1: [-1.35, 4.15], sB: [-2.2, 4.15], sA: [-3.9, 4.15],
+  s0: [-1.65, 2.75], s1: [-1.65, 3.85], sB: [-3.14, 4.45], sA: [-3.65, 4.02],
   dmid: [2.3, -3.4], din: [DOOR.x, -4.6], dout: [DOOR.x, -6.1],
 };
 

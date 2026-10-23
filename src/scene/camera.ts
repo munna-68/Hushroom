@@ -11,7 +11,7 @@ const clamp = THREE.MathUtils.clamp;
 const PORT = { az: deg(60), pitch: deg(45), fov: 44, target: new THREE.Vector3(0.35, 0.55, -0.1), halfW: 1.95, halfH: 3.0 };
 const LAND = { az: deg(36), pitch: deg(40), fov: 40, target: new THREE.Vector3(-0.75, 0.45, 0.05), halfW: 5.9, halfH: 3.32 };
 
-export const LIMITS = { yaw: deg(25), pitchMin: deg(28), pitchMax: deg(52), zoomMin: 0.85, zoomMax: 1.3 };
+export const LIMITS = { yaw: deg(20), pitchMin: deg(30), pitchMax: deg(50), zoomMin: 0.92, zoomMax: 1.32 };
 
 export interface CameraView { yaw: number; pitch: number; zoom: number }
 
